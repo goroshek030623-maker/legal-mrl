@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Legal MRL</title>
+  <script type="text/javascript">
+    // Redirect non-hash URLs to hash-based URLs for HashRouter
+    var path = window.location.pathname;
+    var search = window.location.search;
+    var hash = window.location.hash;
+    
+    // Remove base path /legal-mrl
+    var basePath = '/legal-mrl';
+    if (path.startsWith(basePath)) {
+      path = path.slice(basePath.length);
+    }
+    
+    // Redirect to hash-based URL: /legal-mrl/#/path?search
+    var newUrl = basePath + '/#' + path + search + hash;
+    window.location.replace(newUrl);
+  </script>
+</head>
+<body>
+</body>
+</html>
