@@ -2270,6 +2270,44 @@ app.post('/api/payments/:id/confirm', async (req, res) => {
   }
 })
 
+
+// ===== ADMIN: CLEANUP PENDING CASES =====
+app.post('/api/admin/cleanup-pending-cases', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '')
+    if (!token) return res.status(401).json({ error: 'Unauthorized' })
+    const decoded = jwt.verify(token, JWT_SECRET) as any
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' })
+
+    const hours = parseInt(req.query.hours as string) || 24
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000)
+
+    const oldCases = await db.select()
+      .from(cases)
+      .where(sql`status IN ('pending', 'waiting', 'draft') AND updated_at < ${cutoff}`)
+      .orderBy(cases.updatedAt)
+
+    const closedIds: string[] = []
+    for (const c of oldCases) {
+      await db.update(cases)
+        .set({ status: 'closed', updatedAt: new Date() })
+        .where(eq(cases.id, c.id))
+      closedIds.push(c.id)
+    }
+
+    res.json({
+      success: true,
+      closed: closedIds.length,
+      hours,
+      cutoff: cutoff.toISOString(),
+      closedIds
+    })
+  } catch (err: any) {
+    console.error('Cleanup pending cases error:', err)
+    res.status(500).json({ error: 'Failed to cleanup cases', details: err.message })
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`DokIQ API running on port ${PORT}`)
 })
