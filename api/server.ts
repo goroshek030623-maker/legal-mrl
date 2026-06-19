@@ -510,9 +510,262 @@ app.get('/api/dashboard', async (req, res) => {
     })
   } catch (err: any) {
     console.error('Dashboard error:', err)
-    res.status(500).json({ error: 'Failed to fetch dashboard', details: err.message })
+
+
+// Admin Dashboard (extended data)
+app.get('/api/admin/dashboard', async (req, res) => {
+  try {
+    // Verify admin
+    const token = req.headers.authorization?.replace('Bearer ', '')
+    if (!token) return res.status(401).json({ error: 'Unauthorized' })
+    
+    const decoded = jwt.verify(token, JWT_SECRET) as any
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' })
+
+    const totalCases = await db.select({ count: sql`count(*)` }).from(cases)
+    const activeCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'active'))
+    const pendingCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'pending'))
+    const paidCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'paid'))
+    const totalDocuments = await db.select({ count: sql`count(*)` }).from(documents)
+    const totalUsers = await db.select({ count: sql`count(*)` }).from(users)
+    
+    const totalPayments = await db.select({ count: sql`count(*)` }).from(payments)
+    const paidPayments = await db.select({ amount: sql`COALESCE(SUM(amount), 0)` })
+      .from(payments)
+      .where(sql`status IN ('paid', 'completed', 'success')`)
+    const pendingPayments = await db.select({ amount: sql`COALESCE(SUM(amount), 0)` })
+      .from(payments)
+      .where(sql`status NOT IN ('paid', 'completed', 'success')`)
+
+    // Recent cases (last 10)
+    const recentCases = await db.select({
+      id: cases.id,
+      title: cases.title,
+      status: cases.status,
+      createdAt: cases.createdAt
+    }).from(cases).orderBy(desc(cases.createdAt)).limit(10)
+
+    // Recent users (last 10)
+    const recentUsers = await db.select({
+      id: users.id,
+      email: users.email,
+      name: users.fullName,
+      isAdmin: users.isAdmin,
+      createdAt: users.createdAt
+    }).from(users).orderBy(desc(users.createdAt)).limit(10)
+
+    // Recent payments (last 10)
+    const recentPayments = await db.select({
+      id: payments.id,
+      amount: payments.amount,
+      status: payments.status,
+      caseId: payments.caseId,
+      createdAt: payments.createdAt
+    }).from(payments).orderBy(desc(payments.createdAt)).limit(10)
+
+    // Recent documents (last 10)
+    const recentDocs = await db.select({
+      id: documents.id,
+      name: documents.name,
+      caseId: documents.caseId,
+      uploadedAt: documents.uploadedAt
+    }).from(documents).orderBy(desc(documents.uploadedAt)).limit(10)
+
+    // Get case titles for payments and documents
+    const allCaseIds = [...recentPayments.map(p => p.caseId), ...recentDocs.map(d => d.caseId)].filter(Boolean)
+    const uniqueCaseIds = [...new Set(allCaseIds)]
+    
+    let caseMap = new Map()
+    if (uniqueCaseIds.length > 0) {
+      const caseData = await db.select({ id: cases.id, title: cases.title }).from(cases).where(sql`id IN (${uniqueCaseIds.map(() => '?').join(',')})`, uniqueCaseIds)
+      caseMap = new Map(caseData.map(c => [c.id, c.title]))
+    }
+
+    // Get document counts for cases
+    const caseIds = recentCases.map(c => c.id)
+    let docCounts = new Map()
+    if (caseIds.length > 0) {
+      const docData = await db.select({ 
+        caseId: documents.caseId, 
+        count: sql`count(*)` 
+      }).from(documents).where(sql`case_id IN (${caseIds.map(() => '?').join(',')})`, caseIds).groupBy(documents.caseId)
+      docCounts = new Map(docData.map(d => [d.caseId, Number(d.count)]))
+    }
+
+    res.json({
+      cases: {
+        total: Number(totalCases[0]?.count || 0),
+        active: Number(activeCases[0]?.count || 0),
+        pending: Number(pendingCases[0]?.count || 0),
+        paid: Number(paidCases[0]?.count || 0),
+        recent: recentCases.map(c => ({
+          ...c,
+          clientName: c.title,
+          documentCount: docCounts.get(c.id) || 0
+        }))
+      },
+      documents: {
+        total: Number(totalDocuments[0]?.count || 0),
+        recent: recentDocs.map(d => ({
+          id: d.id,
+          title: d.name,
+          caseTitle: caseMap.get(d.caseId) || '—',
+          createdAt: d.uploadedAt,
+          status: 'uploaded'
+        }))
+      },
+      payments: {
+        total: Number(totalPayments[0]?.count || 0),
+        paidAmount: Number(paidPayments[0]?.amount || 0),
+        pendingAmount: Number(pendingPayments[0]?.amount || 0),
+        currency: '₽',
+        recent: recentPayments.map(p => ({
+          ...p,
+          caseTitle: caseMap.get(p.caseId) || '—'
+        }))
+      },
+      users: {
+        total: Number(totalUsers[0]?.count || 0),
+        recent: recentUsers.map(u => ({
+          ...u,
+          isAdmin: Boolean(u.isAdmin),
+          caseCount: 0
+        }))
+      }
+    })
+  } catch (err: any) {
+    console.error('Admin dashboard error:', err)
+    res.status(500).json({ error: 'Failed to fetch admin dashboard', details: err.message })
   }
 })
+
+// Admin Dashboard (extended data)
+app.get('/api/admin/dashboard', async (req, res) => {
+  try {
+    // Verify admin
+    const token = req.headers.authorization?.replace('Bearer ', '')
+    if (!token) return res.status(401).json({ error: 'Unauthorized' })
+    
+    const decoded = jwt.verify(token, JWT_SECRET) as any
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' })
+
+    const totalCases = await db.select({ count: sql`count(*)` }).from(cases)
+    const activeCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'active'))
+    const pendingCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'pending'))
+    const paidCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'paid'))
+    const totalDocuments = await db.select({ count: sql`count(*)` }).from(documents)
+    const totalUsers = await db.select({ count: sql`count(*)` }).from(users)
+    
+    const totalPayments = await db.select({ count: sql`count(*)` }).from(payments)
+    const paidPayments = await db.select({ amount: sql`COALESCE(SUM(amount), 0)` })
+      .from(payments)
+      .where(sql`status IN ('paid', 'completed', 'success')`)
+    const pendingPayments = await db.select({ amount: sql`COALESCE(SUM(amount), 0)` })
+      .from(payments)
+      .where(sql`status NOT IN ('paid', 'completed', 'success')`)
+
+    // Recent cases (last 10)
+    const recentCases = await db.select({
+      id: cases.id,
+      title: cases.title,
+      status: cases.status,
+      createdAt: cases.createdAt
+    }).from(cases).orderBy(desc(cases.createdAt)).limit(10)
+
+    // Recent users (last 10)
+    const recentUsers = await db.select({
+      id: users.id,
+      email: users.email,
+      name: users.fullName,
+      isAdmin: users.isAdmin,
+      createdAt: users.createdAt
+    }).from(users).orderBy(desc(users.createdAt)).limit(10)
+
+    // Recent payments (last 10)
+    const recentPayments = await db.select({
+      id: payments.id,
+      amount: payments.amount,
+      status: payments.status,
+      caseId: payments.caseId,
+      createdAt: payments.createdAt
+    }).from(payments).orderBy(desc(payments.createdAt)).limit(10)
+
+    // Recent documents (last 10)
+    const recentDocs = await db.select({
+      id: documents.id,
+      name: documents.name,
+      caseId: documents.caseId,
+      uploadedAt: documents.uploadedAt
+    }).from(documents).orderBy(desc(documents.uploadedAt)).limit(10)
+
+    // Get case titles for payments and documents
+    const allCaseIds = [...recentPayments.map(p => p.caseId), ...recentDocs.map(d => d.caseId)].filter(Boolean)
+    const uniqueCaseIds = [...new Set(allCaseIds)]
+    
+    let caseMap = new Map()
+    if (uniqueCaseIds.length > 0) {
+      const caseData = await db.select({ id: cases.id, title: cases.title }).from(cases).where(sql`id IN (${uniqueCaseIds.map(() => '?').join(',')})`, uniqueCaseIds)
+      caseMap = new Map(caseData.map(c => [c.id, c.title]))
+    }
+
+    // Get document counts for cases
+    const caseIds = recentCases.map(c => c.id)
+    let docCounts = new Map()
+    if (caseIds.length > 0) {
+      const docData = await db.select({ 
+        caseId: documents.caseId, 
+        count: sql`count(*)` 
+      }).from(documents).where(sql`case_id IN (${caseIds.map(() => '?').join(',')})`, caseIds).groupBy(documents.caseId)
+      docCounts = new Map(docData.map(d => [d.caseId, Number(d.count)]))
+    }
+
+    res.json({
+      cases: {
+        total: Number(totalCases[0]?.count || 0),
+        active: Number(activeCases[0]?.count || 0),
+        pending: Number(pendingCases[0]?.count || 0),
+        paid: Number(paidCases[0]?.count || 0),
+        recent: recentCases.map(c => ({
+          ...c,
+          clientName: c.title,
+          documentCount: docCounts.get(c.id) || 0
+        }))
+      },
+      documents: {
+        total: Number(totalDocuments[0]?.count || 0),
+        recent: recentDocs.map(d => ({
+          id: d.id,
+          title: d.name,
+          caseTitle: caseMap.get(d.caseId) || '—',
+          createdAt: d.uploadedAt,
+          status: 'uploaded'
+        }))
+      },
+      payments: {
+        total: Number(totalPayments[0]?.count || 0),
+        paidAmount: Number(paidPayments[0]?.amount || 0),
+        pendingAmount: Number(pendingPayments[0]?.amount || 0),
+        currency: '₽',
+        recent: recentPayments.map(p => ({
+          ...p,
+          caseTitle: caseMap.get(p.caseId) || '—'
+        }))
+      },
+      users: {
+        total: Number(totalUsers[0]?.count || 0),
+        recent: recentUsers.map(u => ({
+          ...u,
+          isAdmin: Boolean(u.isAdmin),
+          caseCount: 0
+        }))
+      }
+    })
+  } catch (err: any) {
+    console.error('Admin dashboard error:', err)
+    res.status(500).json({ error: 'Failed to fetch admin dashboard', details: err.message })
+  }
+})
+
 
 
 // Получение дела
