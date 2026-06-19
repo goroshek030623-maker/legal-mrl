@@ -53,14 +53,6 @@ const authLimiter = rateLimit({
   message: { error: 'Too many auth attempts, please slow down' }
 })
 
-const botBlocker = (req, res, next) => {
-  const ua = (req.headers['user-agent'] || '').toLowerCase()
-  const botPatterns = ['bot', 'crawl', 'spider', 'scrape', 'curl', 'wget', 'python', 'http-client', 'go-http', 'java', 'postman']
-  if (botPatterns.some(p => ua.includes(p)) && !req.path.startsWith('/api/admin')) {
-    return res.status(403).json({ error: 'Forbidden' })
-  }
-  next()
-}
 
 const upload = multer({ dest: '/var/www/legal-mrl/uploads/' })
 
@@ -379,7 +371,6 @@ async function downloadFromMinIO(minioPath: string, localPath: string): Promise<
 // ===== END HELPERS =====
 app.use(cors())
 app.use('/api/', generalLimiter)
-app.use(botBlocker)
 app.use(express.json())
 
 // Принудительно UTF-8 для multipart
@@ -390,8 +381,6 @@ app.use((req, res, next) => {
   next()
 })
 
-// Apply bot protection
-app.use(botBlocker)
 app.use(generalLimiter)
 
 // Подключение к БД (drizzle)
