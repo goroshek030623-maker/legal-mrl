@@ -1,0 +1,485 @@
+import 'dotenv/config'
+import express from 'express'
+import cors from 'cors'
+import multer from 'multer'
+import { v4 as uuidv4 } from 'uuid'
+import { createClient } from '@sanity/client'
+import fs from 'fs'
+
+const app = express()
+const upload = multer({ dest: 'uploads/' })
+
+app.use(cors())
+app.use(express.json())
+
+// Принудительно UTF-8 для multipart
+app.use((req, res, next) => {
+  if (req.headers['content-type']?.includes('multipart/form-data')) {
+    req.headers['content-type'] = req.headers['content-type'].replace(/charset=[^;]+/, 'charset=utf-8')
+  }
+  next()
+})
+
+// Подключение к БД (drizzle)
+import { drizzle } from 'drizzle-orm/mysql2'
+import mysql from 'mysql2/promise'
+import { cases, documents } from '../db/schema'
+import { eq } from 'drizzle-orm'
+
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'legal_mrl',
+  password: process.env.DB_PASSWORD || '@t+G7s8wWNzV',
+  database: process.env.DB_NAME || 'legal_mrl',
+  charset: 'utf8mb4'
+})
+
+const db = drizzle(pool)
+
+// OpenAI
+import OpenAI from 'openai'
+const openai = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY || 'your-key-here',
+  baseURL: 'https://openrouter.ai/api/v1'
+})
+
+// Роуты API
+
+// Создание дела
+app.post('/api/cases', upload.array('files', 50), async (req, res) => {
+  try {
+    const { title, description } = req.body
+    const caseId = uuidv4()
+    
+    await db.insert(cases).values({
+      id: caseId,
+      title,
+      description: description || null,
+      status: 'pending'
+    })
+
+    // Сохраняем файлы
+    const files = req.files as Express.Multer.File[]
+    if (files?.length) {
+      for (const file of files) {
+        const docId = uuidv4()
+        // Fix encoding: multer may receive filename as latin1, convert to utf8
+        const fixedName = Buffer.from(file.originalname, 'latin1').toString('utf8')
+        await db.insert(documents).values({
+          id: docId,
+          caseId,
+          name: fixedName,
+          type: file.mimetype,
+          size: file.size,
+          path: file.path
+        })
+      }
+    }
+
+    res.json({ id: caseId, success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to create case' })
+  }
+})
+
+// Список дел
+app.get('/api/cases', async (req, res) => {
+  try {
+    const allCases = await db.select().from(cases)
+    
+    // Добавляем количество документов
+    const result = await Promise.all(
+      allCases.map(async (c) => {
+        const docs = await db.select().from(documents).where(eq(documents.caseId, c.id))
+        return {
+          ...c,
+          documentCount: docs.length
+        }
+      })
+    )
+    
+    res.json(result)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to fetch cases' })
+  }
+})
+
+// Получение дела
+app.get('/api/cases/:id', async (req, res) => {
+  try {
+    const caseId = req.params.id
+    const caseData = await db.select().from(cases).where(eq(cases.id, caseId))
+    
+    if (!caseData.length) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+    
+    const docs = await db.select().from(documents).where(eq(documents.caseId, caseId))
+    
+    res.json({
+      ...caseData[0],
+      documents: docs
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to fetch case' })
+  }
+})
+
+// Загрузка документов к делу
+app.post('/api/cases/:id/documents', upload.array('files', 50), async (req, res) => {
+  try {
+    const caseId = req.params.id
+    const files = req.files as Express.Multer.File[]
+    
+    if (!files?.length) {
+      return res.status(400).json({ error: 'No files' })
+    }
+    
+    for (const file of files) {
+      const docId = uuidv4()
+      // Fix encoding: multer may receive filename as latin1, convert to utf8
+      const fixedName = Buffer.from(file.originalname, 'latin1').toString('utf8')
+      await db.insert(documents).values({
+        id: docId,
+        caseId,
+        name: fixedName,
+        type: file.mimetype,
+        size: file.size,
+        path: file.path
+      })
+    }
+    
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to upload' })
+  }
+})
+
+// AI-анализ дела
+app.post('/api/cases/:id/analyze', async (req, res) => {
+  try {
+    const caseId = req.params.id
+    
+    // Получаем данные дела
+    const caseData = await db.select().from(cases).where(eq(cases.id, caseId))
+    const docs = await db.select().from(documents).where(eq(documents.caseId, caseId))
+    
+    if (!caseData.length) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+    
+    const c = caseData[0]
+    
+    // Читаем текст из PDF документов (макс 3000 символов на документ, макс 10 документов)
+    let documentsText = ''
+    let docsProcessed = 0
+    for (const doc of docs) {
+      if (docsProcessed >= 10) break
+      if (doc.type === 'application/pdf' || doc.name.endsWith('.pdf')) {
+        try {
+          console.log('Reading PDF:', doc.path, 'exists?', fs.existsSync(doc.path))
+          const pdfParse = (await import('pdf-parse')).default
+          const dataBuffer = await fs.promises.readFile(doc.path)
+          const pdfData = await pdfParse(dataBuffer)
+          console.log('PDF text length:', pdfData.text?.length || 0)
+          const text = pdfData.text.substring(0, 3000)
+          documentsText += `\n--- Документ: ${doc.name} ---\n${text}\n`
+          docsProcessed++
+        } catch (e: any) {
+          console.log('PDF read error:', e.message)
+          documentsText += `\n--- Документ: ${doc.name} (не удалось прочитать: ${e.message}) ---\n`
+        }
+      }
+    }
+    
+    console.log('Documents text length:', documentsText.length)
+    console.log('Documents text preview:', documentsText.substring(0, 200))
+    const prompt = `
+Проанализируй юридическую ситуацию:
+
+Название: ${c.title}
+Описание: ${c.description || 'Не указано'}
+Документов: ${docs.length}
+
+${documentsText ? 'Содержание документов:' + documentsText : 'Документы приложены, но текст не извлечён.'}
+
+Дай краткий анализ (3-5 пунктов), основываясь ТОЛЬКО на содержании документов:
+1. Что нужно сделать в первую очередь (конкретные шаги)
+2. Какие документы потребуются (чего не хватает в материалах)
+3. Возможные риски (конкретные слабые места)
+4. Рекомендации по стратегии (опираясь на факты из документов)
+
+Если в документах есть конкретные суммы, даты, статьи закона — укажи их.
+Формат: кратко, по делу, без воды.
+
+Также предложи 4-5 конкретных вариантов действий для клиента после анализа. Обязательно включи вариант "Закрыть дело и уйти" (если нет перспектив или клиент не хочет продолжать). Другие варианты могут быть: подготовить исковое заявление, написать претензию, запросить дополнительные документы, досудебное урегулирование.
+
+Формат ответа:
+ANALYSIS:
+[текст анализа]
+
+ACTIONS:
+1. [Название действия] - [Краткое описание]
+2. [Название действия] - [Краткое описание]
+...`
+
+    const completion = await openai.chat.completions.create({
+      model: 'deepseek/deepseek-chat',
+      messages: [
+        { role: 'system', content: 'Ты юридический консультант. Даёшь конкретные рекомендации.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 1000
+    })
+    
+    const generatedText = completion.choices[0].message.content
+    
+    // Парсим ответ на анализ и действия
+    const analysisMatch = generatedText.match(/ANALYSIS:\s*([\s\S]+?)(?=\nACTIONS:|$)/)
+    const actionsMatch = generatedText.match(/ACTIONS:\s*([\s\S]+)/)
+    
+    let analysis = generatedText
+    let suggestedActions: string[] = []
+    
+    if (analysisMatch && actionsMatch) {
+      analysis = analysisMatch[1].trim()
+      const actionsText = actionsMatch[1].trim()
+      suggestedActions = actionsText.split('\n')
+        .map(line => line.trim())
+        .filter(line => line.match(/^\d+\./))
+        .map(line => line.replace(/^\d+\.\s*/, ''))
+    }
+    
+    // Сохраняем анализ и действия
+    await db.update(cases)
+      .set({ 
+        analysis,
+        status: 'active'
+      })
+      .where(eq(cases.id, caseId))
+    
+    res.json({ analysis, suggestedActions })
+  } catch (err: any) {
+    console.error('Analyze error:', err)
+    res.status(500).json({ error: 'Failed to analyze', details: err.message })
+  }
+})
+
+// Скачивание документа
+app.get('/api/documents/:id', async (req, res) => {
+  try {
+    const docId = req.params.id
+    const docs = await db.select().from(documents).where(eq(documents.id, docId))
+    
+    if (!docs.length) {
+      return res.status(404).json({ error: 'Document not found' })
+    }
+    
+    const doc = docs[0]
+    res.download(doc.path, doc.name)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to download' })
+  }
+})
+
+// Удаление документа
+app.delete('/api/cases/:caseId/documents/:docId', async (req, res) => {
+  try {
+    const { caseId, docId } = req.params
+    
+    // Проверяем существование документа
+    const docs = await db.select().from(documents).where(eq(documents.id, docId))
+    if (!docs.length) {
+      return res.status(404).json({ error: 'Document not found' })
+    }
+    
+    const doc = docs[0]
+    if (doc.caseId !== caseId) {
+      return res.status(403).json({ error: 'Document does not belong to this case' })
+    }
+    
+    // Удаляем файл с диска
+    try {
+      if (fs.existsSync(doc.path)) {
+        fs.unlinkSync(doc.path)
+      }
+    } catch (e) {
+      console.log('File delete error:', e)
+    }
+    
+    // Удаляем из БД
+    await db.delete(documents).where(eq(documents.id, docId))
+    
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to delete document' })
+  }
+})
+
+// Генерация юридического документа (иск, претензия и т.д.)
+app.post('/api/cases/:id/generate', async (req, res) => {
+  try {
+    const caseId = req.params.id
+    const { documentType, clientData } = req.body
+    
+    // Получаем данные дела
+    const caseData = await db.select().from(cases).where(eq(cases.id, caseId))
+    if (!caseData.length) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+    
+    const c = caseData[0]
+    const docs = await db.select().from(documents).where(eq(documents.caseId, caseId))
+    
+    // Читаем документы для контекста
+    let documentsText = ''
+    let docsProcessed = 0
+    for (const doc of docs) {
+      if (docsProcessed >= 5) break
+      if (doc.type === 'application/pdf' || doc.name.endsWith('.pdf')) {
+        try {
+          const pdfParse = (await import('pdf-parse')).default
+          const dataBuffer = await fs.promises.readFile(doc.path)
+          const pdfData = await pdfParse(dataBuffer)
+          const text = pdfData.text.substring(0, 2000)
+          documentsText += `\n--- ${doc.name} ---\n${text}\n`
+          docsProcessed++
+        } catch (e) {
+          console.log('PDF read error:', e)
+        }
+      }
+    }
+    
+    const prompt = `
+Подготовь юридический документ: ${documentType}
+
+Дело: ${c.title}
+Описание: ${c.description || 'Не указано'}
+
+Данные клиента:
+${Object.entries(clientData).map(([k, v]) => `${k}: ${v}`).join('\n')}
+
+${documentsText ? 'Контекст из документов:' + documentsText : ''}
+
+Напиши полный текст документа в формате, готовом для подачи в суд или отправки. Используй официальный юридический стиль. Включи все необходимые реквизиты, ссылки на законы и конкретные факты из материалов дела.
+
+Формат ответа:
+TITLE: [Название документа]
+BODY:
+[Полный текст документа]
+`
+
+    const completion = await openai.chat.completions.create({
+      model: 'deepseek/deepseek-chat',
+      messages: [
+        { role: 'system', content: 'Ты юрист. Пишешь официальные юридические документы.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.5,
+      max_tokens: 2000
+    })
+    
+    const generatedText = completion.choices[0].message.content
+    
+    // Парсим заголовок и тело
+    const titleMatch = generatedText.match(/TITLE:\s*(.+)/)
+    const bodyMatch = generatedText.match(/BODY:\s*([\s\S]+)/)
+    
+    const title = titleMatch ? titleMatch[1].trim() : documentType
+    const body = bodyMatch ? bodyMatch[1].trim() : generatedText
+    
+    // Сохраняем в БД как новый документ
+    const generatedId = uuidv4()
+    await db.insert(cases).values({
+      id: generatedId,
+      title: `${documentType} — ${c.title}`,
+      description: body,
+      status: 'generated',
+      analysis: JSON.stringify({
+        documentType,
+        clientData,
+        originalCaseId: caseId,
+        title,
+        preview: body.substring(0, 500) + '...',
+        paid: false
+      })
+    })
+    
+    res.json({
+      id: generatedId,
+      title,
+      preview: body.substring(0, 500) + '...',
+      fullText: body,
+      paid: false
+    })
+  } catch (err) {
+    console.error('Generate error:', err)
+    res.status(500).json({ error: 'Failed to generate document', details: err.message })
+  }
+})
+
+// Оплата документа (заглушка — пока без реальной оплаты)
+app.post('/api/documents/:id/pay', async (req, res) => {
+  try {
+    const docId = req.params.id
+    
+    // TODO: интеграция с платёжной системой
+    // Сейчас просто помечаем как оплаченное
+    
+    await db.update(cases)
+      .set({ status: 'paid' })
+      .where(eq(cases.id, docId))
+    
+    res.json({ success: true, paid: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Payment failed' })
+  }
+})
+
+// Скачивание сгенерированного документа (после оплаты)
+app.get('/api/generated/:id', async (req, res) => {
+  try {
+    const docId = req.params.id
+    const docs = await db.select().from(cases).where(eq(cases.id, docId))
+    
+    if (!docs.length) {
+      return res.status(404).json({ error: 'Document not found' })
+    }
+    
+    const doc = docs[0]
+    
+    // Проверяем статус оплаты
+    if (doc.status !== 'paid') {
+      return res.status(403).json({ 
+        error: 'Payment required',
+        preview: doc.description?.substring(0, 500) + '...',
+        status: 'payment_required'
+      })
+    }
+    
+    // Отправляем как .doc файл
+    const title = doc.title || 'document'
+    const filename = title.replace(/[^a-zA-Z0-9\u0400-\u04FF]/g, '_') + '.doc'
+    
+    const encodedFilename = encodeURIComponent(filename)
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`)
+    res.setHeader('Content-Type', 'application/msword')
+    res.send(doc.description)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to download' })
+  }
+})
+
+const PORT = process.env.PORT || 3002
+app.listen(PORT, () => {
+  console.log(`Legal MRL API running on port ${PORT}`)
+})

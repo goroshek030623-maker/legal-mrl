@@ -1,0 +1,1386 @@
+import 'dotenv/config'
+console.log('[DB CONFIG]', {
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD ? '***' : undefined,
+  database: process.env.DB_NAME
+})
+import express from 'express'
+import cors from 'cors'
+import multer from 'multer'
+import { v4 as uuidv4 } from 'uuid'
+
+import { exec } from 'child_process'
+import { promisify } from 'util'
+const execAsync = promisify(exec)
+
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
+import fs from 'fs'
+import JSZip from 'jszip'
+import WordExtractor from 'word-extractor'
+
+// Declare missing types for word-extractor
+declare module 'word-extractor' {
+  class WordExtractor {
+    extract(filePath: string): Promise<{
+      getBody(): string
+    }>
+  }
+}
+
+const app = express()
+
+const GUARD_PROMPT = 'Ты — юридический и деловой ассистент. Отвечай ТОЛЬКО на вопросы по российскому законодательству, корпоративному праву, проверке контрагентов, договорам, судебным процессам и деловой активности. Если вопрос выходит за эти рамки (бытовые, кулинарные, развлекательные, технические темы, не связанные с правом и бизнесом) — вежливо откажись и предложи обратиться к соответствующему специалисту. Никогда не отвечай на темы, не связанные с юриспруденцией и деловой практикой.'
+
+const upload = multer({ dest: 'uploads/' })
+
+app.use(cors({ origin: '*', credentials: true }))
+app.use(express.json())
+
+// Подключение к БД (drizzle)
+import { drizzle } from 'drizzle-orm/mysql2'
+import mysql from 'mysql2/promise'
+import { cases, documents, payments } from '../db/schema'
+import { eq } from 'drizzle-orm'
+import OpenAI from 'openai'
+import bcrypt from 'bcryptjs'
+import jwt from 'jsonwebtoken'
+
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'legal_mrl',
+  password: process.env.DB_PASSWORD || '@t+G7s8wWNzV',
+  database: process.env.DB_NAME || 'legal_mrl'
+})
+
+const db = drizzle(pool)
+
+// Kimi (Moonshot) — единственный AI-провайдер
+const moonshot = new OpenAI({
+  apiKey: process.env.MOONSHOT_API_KEY || 'sk-J91RCPbHcmnAZQL3Y3e8NKFQLmeTnuCfIEBiatEeJdB4o2pn',
+  baseURL: 'https://api.moonshot.ai/v1'
+})
+
+// ─── AI Queue System (max 5 concurrent) ───────────────────────────────────
+const CONCURRENCY_LIMIT = 5
+interface QueueItem {
+  id: string
+  promise: () => Promise<string>
+  resolve: (value: string) => void
+  reject: (reason: any) => void
+}
+const aiQueue: QueueItem[] = []
+let runningCount = 0
+const aiQueueStatus = new Map<string, { status: 'queued' | 'running'; position: number; startedAt?: number }>()
+
+async function processQueue() {
+  if (runningCount >= CONCURRENCY_LIMIT || aiQueue.length === 0) return
+
+  const item = aiQueue.shift()!
+  runningCount++
+  aiQueueStatus.set(item.id, { status: 'running', position: 0, startedAt: Date.now() })
+
+  try {
+    const result = await item.promise()
+    item.resolve(result)
+  } catch (err) {
+    item.reject(err)
+  } finally {
+    runningCount--
+    aiQueueStatus.delete(item.id)
+    processQueue()
+  }
+}
+
+async function runWithQueue(promise: () => Promise<string>, requestId: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    aiQueue.push({ id: requestId, promise, resolve, reject })
+    aiQueueStatus.set(requestId, { status: 'queued', position: aiQueue.length })
+    processQueue()
+  })
+}
+
+app.get('/api/queue-status/:requestId', (req, res) => {
+  const status = aiQueueStatus.get(req.params.requestId)
+  if (!status) return res.json({ status: 'done', position: 0 })
+
+  if (status.status === 'running') {
+    return res.json({ status: 'running', position: 0 })
+  }
+
+  const position = aiQueue.findIndex(item => item.id === req.params.requestId) + 1
+  res.json({ status: 'queued', position })
+})
+
+// Helper: web search with two-round flow for Moonshot API
+async function extractDocxText(filePath: string): Promise<string> {
+  const data = await fs.promises.readFile(filePath)
+  const zip = await JSZip.loadAsync(data)
+  
+  // DOCX — это zip с XML внутри
+  const xmlContent = await zip.file('word/document.xml')?.async('text')
+  if (!xmlContent) return ''
+  
+  // Простой парсинг: убираем XML теги
+  let text = xmlContent.replace(/<[^>]+>/g, ' ')
+  text = text.replace(/\s+/g, ' ').trim()
+  return text
+}
+
+async function extractDocText(filePath: string): Promise<string> {
+  // .doc — старый бинарный формат, используем word-extractor
+  const extractor = new WordExtractor()
+  const doc = await extractor.extract(filePath)
+  return doc.getBody() || ''
+}
+
+async function chatWithWebSearch(
+  systemContent: string,
+  userContent: string,
+  maxTokens: number = 3000
+): Promise<string> {
+  const tools = [
+    {
+      type: 'builtin_function',
+      function: { name: '$web_search' }
+    }
+  ]
+
+  const messages: any[] = [
+    { role: 'system', content: GUARD_PROMPT + '\n\n' + systemContent },
+    { role: 'user', content: userContent }
+  ]
+
+  // Round 1: Initial request with tools
+  let completion = await moonshot.chat.completions.create({
+    model: 'kimi-k2.5',
+    messages,
+    temperature: 0.6,
+    max_tokens: maxTokens,
+    thinking: { type: 'disabled' },
+    tools
+  })
+
+  let choice = completion.choices[0]
+
+  // Round 2: If tool_calls, send back tool results
+  if (choice.finish_reason === 'tool_calls' && choice.message.tool_calls) {
+    messages.push({
+      role: 'assistant',
+      content: choice.message.content || '',
+      tool_calls: choice.message.tool_calls
+    })
+
+    for (const toolCall of choice.message.tool_calls) {
+      const toolCallName = toolCall.function.name
+      const toolCallArguments = JSON.parse(toolCall.function.arguments)
+      
+      // For Moonshot $web_search, just return arguments as-is (server-side search)
+      let toolResult: any
+      if (toolCallName === '$web_search') {
+        toolResult = toolCallArguments
+      } else {
+        toolResult = { error: `Unknown tool: ${toolCallName}` }
+      }
+
+      messages.push({
+        role: 'tool',
+        tool_call_id: toolCall.id,
+        name: toolCallName,
+        content: JSON.stringify(toolResult)
+      })
+    }
+
+    // Second request with tool results
+    completion = await moonshot.chat.completions.create({
+      model: 'kimi-k2.5',
+      messages,
+      temperature: 0.6,
+      max_tokens: maxTokens,
+      thinking: { type: 'disabled' },
+      tools
+    })
+    
+    choice = completion.choices[0]
+  }
+
+  return choice.message.content || ''
+}
+
+function normalizeFilename(name: string): string {
+  // Декодируем из latin1 если нужно
+  let decoded = name
+  try {
+    decoded = Buffer.from(name, 'latin1').toString('utf8')
+  } catch (e) {
+    decoded = name
+  }
+  
+  const map: Record<string, string> = {
+    'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'yo','ж':'zh','з':'z','и':'i',
+    'й':'y','к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r','с':'s','т':'t',
+    'у':'u','ф':'f','х':'h','ц':'ts','ч':'ch','ш':'sh','щ':'shch','ъ':'','ы':'y','ь':'',
+    'э':'e','ю':'yu','я':'ya',
+    'А':'A','Б':'B','В':'V','Г':'G','Д':'D','Е':'E','Ё':'Yo','Ж':'Zh','З':'Z','И':'I',
+    'Й':'Y','К':'K','Л':'L','М':'M','Н':'N','О':'O','П':'P','Р':'R','С':'S','Т':'T',
+    'У':'U','Ф':'F','Х':'H','Ц':'Ts','Ч':'Ch','Ш':'Sh','Щ':'Shch','Ъ':'','Ы':'Y','Ь':'',
+    'Э':'E','Ю':'Yu','Я':'Ya',' ':'_'
+  }
+  return decoded.split('').map(c => map[c] || c).join('')
+}
+
+// Роуты API
+
+// Создание дела
+app.post('/api/cases', upload.array('files'), async (req, res) => {
+  try {
+    const { title, description } = req.body
+    const caseId = uuidv4()
+    
+    await db.insert(cases).values({
+      id: caseId,
+      title,
+      description: description || null,
+      status: 'pending',
+      caseType: req.body.caseType || 'legal',
+      serviceType: req.body.serviceType || null
+    })
+
+    // Сохраняем файлы
+    const files = req.files as Express.Multer.File[]
+    if (files?.length) {
+      for (const file of files) {
+        const docId = uuidv4()
+        await db.insert(documents).values({
+          id: docId,
+          caseId,
+          name: normalizeFilename(file.originalname),
+          type: file.mimetype,
+          size: file.size,
+          path: file.path
+        })
+      }
+    }
+
+    res.json({ id: caseId, success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to create case' })
+  }
+})
+
+// Список дел
+app.get('/api/cases', async (req, res) => {
+  try {
+    const allCases = await db.select().from(cases)
+    
+    // Добавляем количество документов
+    const result = await Promise.all(
+      allCases.map(async (c) => {
+        const docs = await db.select().from(documents).where(eq(documents.caseId, c.id))
+        return {
+          ...c,
+          documentCount: docs.length,
+          caseType: c.caseType || 'legal'
+        }
+      })
+    )
+    
+    res.json(result)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to fetch cases' })
+  }
+})
+
+// Получение дела
+app.get('/api/cases/:id', async (req, res) => {
+  try {
+    const caseId = req.params.id
+    const caseData = await db.select().from(cases).where(eq(cases.id, caseId))
+    
+    if (!caseData.length) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+    
+    const docs = await db.select().from(documents).where(eq(documents.caseId, caseId))
+    
+    res.json({
+      ...caseData[0],
+      documents: docs
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to fetch case' })
+  }
+})
+
+// Загрузка документов к делу
+app.post('/api/cases/:id/documents', upload.array('files'), async (req, res) => {
+  try {
+    const caseId = req.params.id
+    const files = req.files as Express.Multer.File[]
+    
+    if (!files?.length) {
+      return res.status(400).json({ error: 'No files' })
+    }
+    
+    for (const file of files) {
+      const docId = uuidv4()
+      await db.insert(documents).values({
+        id: docId,
+        caseId,
+        name: normalizeFilename(file.originalname),
+        type: file.mimetype,
+        size: file.size,
+        path: file.path
+      })
+    }
+    
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to upload' })
+  }
+})
+
+// AI-анализ дела
+app.post('/api/cases/:id/analyze', async (req, res) => {
+  try {
+    const caseId = req.params.id
+    
+    // Получаем данные дела
+    const caseData = await db.select().from(cases).where(eq(cases.id, caseId))
+    const docs = await db.select().from(documents).where(eq(documents.caseId, caseId))
+    
+    if (!caseData.length) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+    
+    const c = caseData[0]
+    
+    // Читаем текст из PDF документов
+    let documentsText = ''
+    for (const doc of docs) {
+      const isPdf = doc.type === 'application/pdf' || doc.name.toLowerCase().endsWith('.pdf')
+      const isDocx = doc.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || doc.name.toLowerCase().endsWith('.docx')
+      const isDoc = doc.type === 'application/msword' || doc.name.toLowerCase().endsWith('.doc')
+      const isTxt = doc.type === 'text/plain' || doc.name.toLowerCase().endsWith('.txt')
+      
+      if (!isPdf && !isDocx && !isDoc && !isTxt) continue
+      
+      try {
+        console.log('Reading doc:', doc.name, 'type:', doc.type, 'path:', doc.path)
+        let text = ''
+        
+        if (isPdf) {
+          const dataBuffer = await fs.promises.readFile(doc.path)
+          const pdfDocument = await pdfjsLib.getDocument({ 
+            data: new Uint8Array(dataBuffer),
+            useSystemFonts: true
+          }).promise
+          let fullText = ''
+          for (let i = 1; i <= pdfDocument.numPages; i++) {
+            const page = await pdfDocument.getPage(i)
+            const textContent = await page.getTextContent()
+            // Sort items by Y position (top to bottom) then X (left to right)
+            const items = textContent.items.map((item: any) => ({
+              str: item.str,
+              x: item.transform[4],
+              y: item.transform[5]
+            })).sort((a: any, b: any) => {
+              if (Math.abs(b.y - a.y) > 3) return b.y - a.y
+              return a.x - b.x
+            })
+            let pageText = ''
+            let lastY = null
+            for (const item of items) {
+              if (lastY !== null && Math.abs(lastY - item.y) > 3) {
+                pageText += '\n'
+              } else if (lastY !== null) {
+                pageText += ' '
+              }
+              pageText += item.str
+              lastY = item.y
+            }
+            fullText += pageText + '\n\n'
+          }
+          // Fallback: если pdfjs не извлёк текст (сканированный PDF), пробуем pdftotext
+          if (fullText.trim().length < 50) {
+            console.log('PDF text too short, trying pdftotext fallback for:', doc.name)
+            try {
+              const { stdout } = await execAsync(`pdftotext "${doc.path}" -`)
+              fullText = stdout
+              console.log('pdftotext extracted length:', fullText.length)
+            } catch (e) {
+              console.log('pdftotext failed:', (e as Error).message)
+            }
+          }
+        // Если текст всё ещё пустой — OCR через tesseract
+          if (fullText.trim().length < 50) {
+            console.log('PDF text still too short, trying OCR for:', doc.name)
+            try {
+              const tmpDir = `/tmp/ocr-${Date.now()}`
+              await fs.promises.mkdir(tmpDir, { recursive: true })
+              // Конвертируем PDF в PNG (первые 5 страниц для скорости)
+              const { stdout: ppmStdout } = await execAsync(`pdftoppm -png -f 1 -l 5 -r 300 "${doc.path}" "${tmpDir}/page"`)
+              console.log('pdftoppm output:', ppmStdout)
+              // Распознаём каждую страницу
+              const pages = await fs.promises.readdir(tmpDir)
+              let ocrText = ''
+              for (const page of pages.sort()) {
+                if (!page.endsWith('.png')) continue
+                const pagePath = `${tmpDir}/${page}`
+                const { stdout: ocrStdout } = await execAsync(`tesseract "${pagePath}" stdout -l rus`)
+                ocrText += ocrStdout + '\n\n'
+                console.log('OCR page', page, 'length:', ocrStdout.length)
+              }
+              fullText = ocrText
+              console.log('OCR total extracted length:', fullText.length)
+              // Чистим временные файлы
+              await fs.promises.rm(tmpDir, { recursive: true, force: true })
+            } catch (e) {
+              console.log('OCR failed:', (e as Error).message)
+            }
+          }
+        } else if (isDocx) {
+          const fullText = await extractDocxText(doc.path)
+          text = fullText.substring(0, 15000)
+          console.log('DOCX text length:', fullText.length)
+        } else if (isDoc) {
+          const fullText = await extractDocText(doc.path)
+          text = fullText.substring(0, 15000)
+          console.log('DOC text length:', fullText.length)
+        } else if (isTxt) {
+          const fullText = await fs.promises.readFile(doc.path, 'utf8')
+          text = fullText.substring(0, 15000)
+          console.log('TXT text length:', fullText.length)
+        }
+        
+        documentsText += `\n--- Документ: ${doc.name} ---\n${text}\n`
+      } catch (e) {
+        console.log('Doc read error:', (e as Error).message)
+        documentsText += `\n--- Документ: ${doc.name} (не удалось прочитать: ${(e as Error).message}) ---\n`
+      }
+    }
+    
+    // Формируем промпт для OpenAI
+    const prompt = `
+Проанализируй юридическую ситуацию:
+
+Название: ${c.title}
+Описание: ${c.description || 'Не указано'}
+Документов: ${docs.length}
+
+${documentsText ? 'Содержание документов:' + documentsText : 'Документы приложены, но текст не извлечён.'}
+
+Дай краткий анализ (3-5 пунктов):
+1. Что нужно сделать в первую очередь
+2. Какие документы потребуются
+3. Возможные риски
+4. Рекомендации по стратегии
+
+В самом конце ответа, на отдельной строке, обязательно добавь:
+РЕКОМЕНДУЕМЫЕ ДЕЙСТВИЯ: [ключи через запятую]
+
+Доступные ключи: claim, lawsuit, contract, settlement, deferment, counterclaim, objection, expert, lawyer, respond
+Пример: РЕКОМЕНДУЕМЫЕ ДЕЙСТВИЯ: claim, contract
+`
+
+    const requestId = uuidv4()
+    const analysisRaw = await runWithQueue(() => chatWithWebSearch(
+      'Ты юридический консультант. Даёшь конкретные рекомендации. Всегда проверяй актуальность законов на 2026 год.',
+      prompt,
+      18000
+    ), requestId)
+    
+    // Парсим рекомендуемые действия из ответа AI
+    let analysis = analysisRaw
+    let recommendedActions: string[] = []
+    
+    console.log('[ANALYZE] Raw response ending:', analysisRaw.substring(analysisRaw.length - 200))
+    
+    const actionsMatch = analysisRaw.match(/РЕКОМЕНДУЕМЫЕ ДЕЙСТВИЯ[:\s]*([\w\s,]+)/is)
+    console.log('[ANALYZE] Match:', actionsMatch)
+    if (actionsMatch) {
+      const actionsStr = actionsMatch[1]
+      console.log('[ANALYZE] Extracted:', actionsStr)
+      const validActions = ['claim', 'lawsuit', 'contract', 'settlement', 'deferment', 'counterclaim', 'objection', 'expert', 'lawyer', 'respond']
+      recommendedActions = actionsStr.split(/[,\s]+/).map(a => a.trim().toLowerCase()).filter(a => validActions.includes(a))
+      console.log('[ANALYZE] Parsed:', recommendedActions)
+      analysis = analysisRaw.replace(/РЕКОМЕНДУЕМЫЕ ДЕЙСТВИЯ[:\s]*[\w\s,]+/is, '').trim()
+    } else {
+      console.log('[ANALYZE] No match found')
+    }
+    
+    // Очищаем markdown из анализа перед сохранением
+    function cleanMarkdownBackend(text: string): string {
+      let t = text
+      // Remove heading markers
+      t = t.replace(/^#{1,6}\s*/gm, '')
+      // Remove table separators
+      t = t.replace(/^\|[\s\-:]+\|$/gm, '')
+      // Remove table row markers
+      t = t.replace(/^\|/gm, '').replace(/\|$/gm, '')
+      // Remove list markers
+      t = t.replace(/^\s*([-*•+]|\d+\.)\s+/gm, '')
+      // Remove bold markers
+      t = t.replace(/\*\*(.*?)\*\*/g, '$1')
+      // Remove italic markers
+      t = t.replace(/\*(.*?)\*/g, '$1')
+      // Remove code blocks
+      t = t.replace(/```[\s\S]*?```/g, '')
+      // Remove inline code
+      t = t.replace(/`([^`]+)`/g, '$1')
+      // Remove blockquotes
+      t = t.replace(/^\s*>\s*/gm, '')
+      // Remove links [text](url) -> text
+      t = t.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      // Remove stray markdown chars
+      t = t.replace(/_{1,2}/g, '')
+      // Remove horizontal rules
+      t = t.replace(/^---\s*$/gm, '')
+      // Remove table separators and markers
+      t = t.replace(/^\|?\s*:?-{3,}\s*:?\|?$/gm, '')
+      t = t.replace(/^\s*:?-{3,}\s*:?\s*$/gm, '')
+      t = t.replace(/^\|\s*/gm, '')
+      t = t.replace(/\s*\|$/gm, '')
+      t = t.replace(/\s*\|\s*/g, ' ')
+      return t.trim()
+    }
+    
+    analysis = cleanMarkdownBackend(analysis)
+    
+    // Сохраняем анализ и рекомендации
+    await db.update(cases)
+      .set({ 
+        analysis, 
+        recommendedActions: JSON.stringify(recommendedActions),
+        status: 'active' 
+      })
+      .where(eq(cases.id, caseId))
+    
+    res.json({ analysis, recommendedActions })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to analyze' })
+  }
+})
+
+// Проверка контрагента
+app.post('/api/cases/:id/check-contractor', async (req, res) => {
+  try {
+    const caseId = req.params.id
+    const { name, inn, ogrn, address } = req.body
+
+    const caseData = await db.select().from(cases).where(eq(cases.id, caseId))
+    if (!caseData.length) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+
+    const c = caseData[0]
+
+    const prompt = `Ты — юридический аналитик. Проведи проверку контрагента и выдай структурированный анализ.
+
+ДАННЫЕ КОНТРАГЕНТА:
+- Название: ${name || 'Не указано'}
+- ИНН: ${inn || 'Не указан'}
+- ОГРН: ${ogrn || 'Не указан'}
+- Адрес: ${address || 'Не указан'}
+
+ЗАДАЧИ:
+1. Проверь ИНН и ОГРН на формальную корректность (контрольные суммы)
+2. Оцени риски: отсутствие данных, несоответствие формата — всё считай фактором риска
+3. Если данные минимальны — укажи, что проверка ограничена, рекомендуй запросить выписку из ЕГРЮЛ/ЕГРИП
+4. Перечисли рекомендуемые проверки: налоговая задолженность, судебные дела, арбитражная практика, репутация
+5. Дай рекомендацию: сотрудничать, требовать дополнительные гарантии, или отказаться
+
+Формат: кратко, по делу, структурировано. Используй заголовки: Риски, Рекомендации, Дополнительные проверки.`
+
+    const requestId = uuidv4()
+    const analysis = await runWithQueue(() => chatWithWebSearch(
+      'Ты эксперт по проверке контрагентов. Анализируй риски на основе предоставленных данных. Всегда указывай ограничения проверки, если данных недостаточно.',
+      prompt,
+      2000
+    ), requestId)
+
+    res.json({ analysis })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to check contractor' })
+  }
+})
+
+// Сохранение отчёта о проверке контрагента как документа
+app.post('/api/cases/:id/save-contractor-report', async (req, res) => {
+  try {
+    const caseId = req.params.id
+    const { contractorData, analysis } = req.body
+
+    // Создаём PDF-файл с отчётом (просто текстовый файл для начала)
+    const reportText = `ОТЧЁТ О ПРОВЕРКЕ КОНТРАГЕНТА
+
+Дата: ${new Date().toLocaleDateString('ru-RU')}
+Дело: ${caseId}
+
+ДАННЫЕ КОНТРАГЕНТА:
+- Название: ${contractorData?.name || 'Не указано'}
+- ИНН: ${contractorData?.inn || 'Не указан'}
+- ОГРН: ${contractorData?.ogrn || 'Не указан'}
+- Адрес: ${contractorData?.address || 'Не указан'}
+
+РЕЗУЛЬТАТ АНАЛИЗА:
+${analysis}
+
+---
+Сгенерировано автоматически Legal MRL
+`
+
+    const docId = uuidv4()
+    const filePath = `uploads/${docId}.txt`
+    await fs.promises.writeFile(filePath, reportText, 'utf8')
+
+    await db.insert(documents).values({
+      id: docId,
+      caseId,
+      name: `Проверка_контрагента_${contractorData?.name || 'без_имени'}_${new Date().toISOString().slice(0,10)}.txt`,
+      type: 'text/plain',
+      size: Buffer.byteLength(reportText, 'utf8'),
+      path: filePath
+    })
+
+    res.json({ success: true, documentId: docId })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to save report' })
+  }
+})
+
+// Скачивание документа
+app.get('/api/documents/:id', async (req, res) => {
+  try {
+    const docId = req.params.id
+    const docs = await db.select().from(documents).where(eq(documents.id, docId))
+    
+    if (!docs.length) {
+      return res.status(404).json({ error: 'Document not found' })
+    }
+    
+    const doc = docs[0]
+    res.download(doc.path, doc.name)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to download' })
+  }
+})
+
+// Оплата документа
+app.post('/api/documents/:id/pay', async (req, res) => {
+  try {
+    const docId = req.params.id
+    const docs = await db.select().from(documents).where(eq(documents.id, docId))
+    
+    if (!docs.length) {
+      return res.status(404).json({ error: 'Document not found' })
+    }
+    
+    const doc = docs[0]
+    const { amount = 500, method = 'sbp' } = req.body
+    
+    const publicId = process.env.ITPAY_PUBLIC_ID
+    const apiSecret = process.env.ITPAY_API_SECRET
+    
+    if (!publicId || !apiSecret) {
+      return res.status(500).json({ error: 'ITPAY credentials not configured' })
+    }
+    
+    const clientPaymentId = uuidv4()
+    
+    const payload = {
+      amount: String(amount),
+      client_payment_id: clientPaymentId,
+      method: method,
+      description: 'Оплата документа',
+      success_url: 'http://62.113.110.117:8081/payment/success',
+      success_url_description: 'Вернуться на сайт',
+      metadata: {
+        source: 'legal_mrl',
+        document_id: docId,
+        case_id: doc.caseId
+      }
+    }
+    
+    const auth = Buffer.from(publicId + ':' + apiSecret).toString('base64')
+    
+    const itpayRes = await fetch('https://api.gw.itpay.ru/v1/payments', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + auth,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+    
+    const itpayData = await itpayRes.json().catch(() => ({}))
+    
+    if (!itpayRes.ok) {
+      console.error('ITPay error:', itpayRes.status, itpayData)
+      return res.status(500).json({ 
+        error: 'ITPay API error', 
+        status: itpayRes.status, 
+        details: itpayData 
+      })
+    }
+    
+    const paymentData = itpayData.data || itpayData
+    
+    await db.insert(payments).values({
+      id: uuidv4(),
+      paymentId: paymentData.id || 'unknown',
+      caseId: doc.caseId,
+      amount: parseInt(amount),
+      status: paymentData.status || 'pending',
+      paymentMethod: method,
+      paymentData: { ...paymentData, payload }
+    })
+    
+    res.json({
+      success: true,
+      paymentId: paymentData.id,
+      status: paymentData.status,
+      amount: amount,
+      paymentUrl: paymentData.payment_qr_urls || null,
+      paymentQrImages: paymentData.payment_qr_images || null,
+      method: paymentData.method,
+      description: paymentData.description,
+      created: paymentData.created
+    })
+  } catch (err) {
+    console.error('Document payment error:', err)
+    res.status(500).json({ error: 'Failed to create payment', details: (err as Error).message })
+  }
+})
+
+// Извлечение текста из документа
+app.post('/api/documents/:id/extract', async (req, res) => {
+  try {
+    const docId = req.params.id
+    const docs = await db.select().from(documents).where(eq(documents.id, docId))
+    
+    if (!docs.length) {
+      return res.status(404).json({ error: 'Document not found' })
+    }
+    
+    const doc = docs[0]
+    let text = ''
+    
+    if (doc.type === 'application/pdf' || doc.name.endsWith('.pdf')) {
+      const dataBuffer = await fs.promises.readFile(doc.path)
+      const pdfDocument = await pdfjsLib.getDocument({ 
+        data: new Uint8Array(dataBuffer),
+        useSystemFonts: true
+      }).promise
+      let fullText = ''
+      for (let i = 1; i <= pdfDocument.numPages; i++) {
+        const page = await pdfDocument.getPage(i)
+        const textContent = await page.getTextContent()
+        const items = textContent.items.map((item: any) => ({
+          str: item.str,
+          x: item.transform[4],
+          y: item.transform[5]
+        })).sort((a: any, b: any) => {
+          if (Math.abs(b.y - a.y) > 3) return b.y - a.y
+          return a.x - b.x
+        })
+        let pageText = ''
+        let lastY = null
+        for (const item of items) {
+          if (lastY !== null && Math.abs(lastY - item.y) > 3) {
+            pageText += '\n'
+          } else if (lastY !== null) {
+            pageText += ' '
+          }
+          pageText += item.str
+          lastY = item.y
+        }
+        fullText += pageText + '\n\n'
+      }
+      // Fallback: pdftotext
+      if (fullText.trim().length < 50) {
+        try {
+          const { stdout } = await execAsync(`pdftotext "${doc.path}" -`)
+          fullText = stdout
+        } catch (e) {}
+      }
+      // OCR fallback
+      if (fullText.trim().length < 50) {
+        try {
+          const tmpDir = `/tmp/ocr-${Date.now()}`
+          await fs.promises.mkdir(tmpDir, { recursive: true })
+          await execAsync(`pdftoppm -png -f 1 -l 5 -r 300 "${doc.path}" "${tmpDir}/page"`)
+          const pages = await fs.promises.readdir(tmpDir)
+          let ocrText = ''
+          for (const page of pages.sort()) {
+            if (!page.endsWith('.png')) continue
+            const pagePath = `${tmpDir}/${page}`
+            const { stdout: ocrStdout } = await execAsync(`tesseract "${pagePath}" stdout -l rus`)
+            ocrText += ocrStdout + '\n\n'
+          }
+          fullText = ocrText
+          await fs.promises.rm(tmpDir, { recursive: true, force: true })
+        } catch (e) {}
+      }
+      text = fullText.substring(0, 40000)
+    } else if (doc.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || doc.name.endsWith('.docx')) {
+      text = await extractDocxText(doc.path)
+    } else if (doc.type === 'application/msword' || doc.name.endsWith('.doc')) {
+      text = await extractDocText(doc.path)
+    } else if (doc.type === 'text/plain' || doc.name.endsWith('.txt')) {
+      text = await fs.promises.readFile(doc.path, 'utf8')
+    }
+    
+    res.json({ text: text.substring(0, 40000), length: text.length })
+  } catch (err) {
+    console.error('Extract error:', err)
+    res.status(500).json({ error: 'Failed to extract text', details: (err as Error).message })
+  }
+})
+
+// AI Swarm — генерация документа через 3 агента
+app.post('/api/cases/:id/swarm-generate', async (req, res) => {
+  try {
+    const caseId = req.params.id
+    const { action, clientData, position, analysisContext } = req.body
+
+    const caseData = await db.select().from(cases).where(eq(cases.id, caseId))
+    if (!caseData.length) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+
+    const c = caseData[0]
+    const docs = await db.select().from(documents).where(eq(documents.caseId, caseId))
+
+    // Читаем текст из документов
+    let documentsText = ''
+    for (const doc of docs) {
+      if (doc.type === 'application/pdf' || doc.name.endsWith('.pdf')) {
+        try {
+          const dataBuffer = await fs.promises.readFile(doc.path)
+          const pdfDocument = await pdfjsLib.getDocument({ 
+            data: new Uint8Array(dataBuffer),
+            useSystemFonts: true
+          }).promise
+          let fullText = ''
+          for (let i = 1; i <= pdfDocument.numPages; i++) {
+            const page = await pdfDocument.getPage(i)
+            const textContent = await page.getTextContent()
+            // Sort items by Y position (top to bottom) then X (left to right)
+            const items = textContent.items.map((item: any) => ({
+              str: item.str,
+              x: item.transform[4],
+              y: item.transform[5]
+            })).sort((a: any, b: any) => {
+              if (Math.abs(b.y - a.y) > 3) return b.y - a.y
+              return a.x - b.x
+            })
+            let pageText = ''
+            let lastY = null
+            for (const item of items) {
+              if (lastY !== null && Math.abs(lastY - item.y) > 3) {
+                pageText += '\n'
+              } else if (lastY !== null) {
+                pageText += ' '
+              }
+              pageText += item.str
+              lastY = item.y
+            }
+            fullText += pageText + '\n\n'
+          }
+          // Fallback: если pdfjs не извлёк текст (сканированный PDF), пробуем pdftotext
+          if (fullText.trim().length < 50) {
+            console.log('PDF text too short, trying pdftotext fallback for:', doc.name)
+            try {
+              const { stdout } = await execAsync(`pdftotext "${doc.path}" -`)
+              fullText = stdout
+              console.log('pdftotext extracted length:', fullText.length)
+            } catch (e) {
+              console.log('pdftotext failed:', (e as Error).message)
+            }
+          }
+          // Если текст всё ещё пустой — OCR через tesseract
+          if (fullText.trim().length < 50) {
+            console.log('PDF text still too short, trying OCR for:', doc.name)
+            try {
+              const tmpDir = `/tmp/ocr-${Date.now()}`
+              await fs.promises.mkdir(tmpDir, { recursive: true })
+              const { stdout: ppmStdout } = await execAsync(`pdftoppm -png -f 1 -l 5 -r 300 "${doc.path}" "${tmpDir}/page"`)
+              console.log('pdftoppm output:', ppmStdout)
+              const pages = await fs.promises.readdir(tmpDir)
+              let ocrText = ''
+              for (const page of pages.sort()) {
+                if (!page.endsWith('.png')) continue
+                const pagePath = `${tmpDir}/${page}`
+                const { stdout: ocrStdout } = await execAsync(`tesseract "${pagePath}" stdout -l rus`)
+                ocrText += ocrStdout + '\n\n'
+                console.log('OCR page', page, 'length:', ocrStdout.length)
+              }
+              fullText = ocrText
+              console.log('OCR total extracted length:', fullText.length)
+              await fs.promises.rm(tmpDir, { recursive: true, force: true })
+            } catch (e) {
+              console.log('OCR failed:', (e as Error).message)
+            }
+          }
+          // Если текст всё ещё пустой — предупреждение
+          if (fullText.trim().length < 10) {
+            documentsText += `\n--- Документ: ${doc.name} ---\n[ВНИМАНИЕ: Документ является сканированным изображением или защищённым PDF. Текст не может быть автоматически извлечён. Для AI-анализа рекомендуется загрузить версию в формате DOCX, DOC или TXT.]\n`
+            console.log('PDF unreadable, warning generated for:', doc.name)
+            continue
+          }
+          const text = fullText.substring(0, 40000) // Increased from 3000 to 40000
+          documentsText += `\n--- Документ: ${doc.name} ---\n${text}\n`
+        } catch (e) {
+          documentsText += `\n--- Документ: ${doc.name} (не удалось прочитать) ---\n`
+        }
+      }
+    }
+
+    const docNames: Record<string, string> = {
+      claim: 'Претензия',
+      lawsuit: 'Исковое заявление',
+      contract: 'Протокол разногласий',
+      objection: 'Возражения на исковое заявление',
+      response: 'Ответ на претензию',
+      counterclaim: 'Встречный иск',
+      settlement: 'Мировое соглашение',
+      deferment: 'Ходатайство об отсрочке исполнения'
+    }
+
+    const docName = docNames[action] || 'Документ'
+    const positionText = position === 'plaintiff' ? 'истец' : position === 'defendant' ? 'ответчик' : 'нейтральная сторона'
+
+    // ─── AGENT 1: Аналитик ───
+    console.log('[SWARM] Phase 1: Analyst')
+    const analystPrompt = `Ты — юридический аналитик. Проанализируй документы дела и выдай структурированный JSON.
+
+Задачи:
+1. Выдели стороны (истец, ответчик, третьи лица)
+2. Определи предмет спора (сумма, договор, товар, услуга)
+3. Найди ключевые даты
+4. Опиши суть претензий
+5. Перечисли доказательства
+6. Укажи применимые нормы права
+
+Формат: ТОЛЬКО JSON. Структура:
+{
+  "parties": { "plaintiff": "...", "defendant": "..." },
+  "subject": "...",
+  "key_dates": ["..."],
+  "claims": ["..."],
+  "evidence": ["..."],
+  "applicable_law": ["..."],
+  "summary": "..."
+}
+
+=== ДОКУМЕНТЫ ДЕЛА ===
+${documentsText}
+
+=== КОНТЕКСТ ===
+${analysisContext || 'Не указан'}
+
+Анализируй и выдай JSON.`
+
+    const requestId1 = uuidv4()
+    const analysisRaw = await runWithQueue(() => chatWithWebSearch(
+      'Ты юридический аналитик. Пиши только JSON, без markdown. Всегда проверяй актуальность законов РФ на 2026 год.',
+      analystPrompt,
+      3000
+    ), requestId1)
+    // Extract JSON from markdown code blocks if present
+    const jsonMatch = analysisRaw.match(/```json\n?([\s\S]*?)\n?```/) || analysisRaw.match(/```\n?([\s\S]*?)\n?```/)
+    const analysisJson = jsonMatch ? jsonMatch[1] : analysisRaw
+    let analysisData
+    try {
+      analysisData = JSON.parse(analysisJson)
+    } catch (e) {
+      analysisData = { error: 'Failed to parse analysis', raw: analysisRaw.substring(0, 500) }
+    }
+
+    // ─── AGENT 2: Стратег ───
+    console.log('[SWARM] Phase 2: Strategist')
+    const strategistPrompt = `Ты — юридический стратег. Получи анализ от аналитика и определи лучшую позицию.
+
+Задачи:
+1. Определи позицию клиента (истец/ответчик/нейтрально)
+2. Оцени сильные стороны
+3. Оцени слабые стороны
+4. Определи риски
+5. Предложи стратегию (основная и запасная)
+6. Рекомендуй тип документа (иск/отзыв/ходатайство/мировое)
+
+Формат: ТОЛЬКО JSON. Структура:
+{
+  "position": "истец|ответчик|нейтрально",
+  "strengths": ["..."],
+  "weaknesses": ["..."],
+  "risks": ["..."],
+  "strategy": "...",
+  "fallback_strategy": "...",
+  "recommended_document": "...",
+  "confidence": "высокая|средняя|низкая"
+}
+
+=== АНАЛИЗ ===
+${JSON.stringify(analysisData, null, 2)}
+
+=== ПОЗИЦИЯ КЛИЕНТА ===
+${positionText}
+
+Определи стратегию и выдай JSON.`
+
+    const requestId2 = uuidv4()
+    const strategyRaw = await runWithQueue(() => chatWithWebSearch(
+      'Ты юридический стратег. Пиши только JSON, без markdown. Учитывай актуальное законодательство РФ 2026 года.',
+      strategistPrompt,
+      3000
+    ), requestId2)
+    const strategyJsonMatch = strategyRaw.match(/```json\n?([\s\S]*?)\n?```/) || strategyRaw.match(/```\n?([\s\S]*?)\n?```/)
+    const strategyJson = strategyJsonMatch ? strategyJsonMatch[1] : strategyRaw
+    let strategyData
+    try {
+      strategyData = JSON.parse(strategyJson)
+    } catch (e) {
+      strategyData = { error: 'Failed to parse strategy', raw: strategyRaw.substring(0, 500) }
+    }
+
+    // ─── AGENT 3: Редактор ───
+    console.log('[SWARM] Phase 3: Editor')
+    const editorPrompt = `Ты — юридический редактор. Напиши полноценный юридический документ: "${docName}".
+
+Правила:
+1. Документ соответствует процессуальному законодательству РФ
+2. Структура: заголовок, реквизиты, стороны, предмет, обстоятельства, правовое обоснование, просьба
+3. Официально-деловой язык
+4. Конкретные ссылки на статьи
+5. Каждое требование подкреплено фактом или нормой
+
+ДЕЛО: ${c.title}
+ОПИСАНИЕ: ${c.description || 'Не указано'}
+
+ПОЗИЦИЯ КЛИЕНТА: ${positionText}
+КОНТЕКСТ: ${analysisContext || 'Не указан'}
+
+ДАННЫЕ КЛИЕНТА:
+- ФИО: ${clientData?.fio || '________'}
+- Компания: ${clientData?.company || '________'}
+- ИНН: ${clientData?.inn || '________'}
+- ОГРН: ${clientData?.ogrn || '________'}
+- Адрес: ${clientData?.address || clientData?.personalAddress || '________'}
+- Телефон: ${clientData?.phone || '________'}
+- Email: ${clientData?.email || '________'}
+
+=== АНАЛИЗ ===
+${JSON.stringify(analysisData, null, 2)}
+
+=== СТРАТЕГИЯ ===
+${JSON.stringify(strategyData, null, 2)}
+
+Напиши полный текст юридического документа (готовый к подаче). В начале укажи тип документа: [ИСК|ОТЗЫВ|ХОДАТАЙСТВО|МИРОВОЕ СОГЛАШЕНИЕ].`
+
+    const requestId3 = uuidv4()
+    const generatedText = await runWithQueue(() => chatWithWebSearch(
+      'Ты профессиональный юрист. Пишешь документы строго по делу, с конкретными ссылками на актуальное законодательство РФ 2026 года. Пиши развёрнуто, детально, не менее 15000 знаков.',
+      editorPrompt,
+      4000
+    ), requestId3)
+
+    // Сохраняем в БД
+    await db.update(cases)
+      .set({ 
+        analysis: JSON.stringify({
+          swarm: true,
+          analysis: analysisData,
+          strategy: strategyData,
+          generated: new Date().toISOString()
+        }, null, 2),
+        generatedDocument: generatedText
+      })
+      .where(eq(cases.id, caseId))
+
+    res.json({ 
+      generatedText,
+      swarmData: {
+        analysis: analysisData,
+        strategy: strategyData
+      }
+    })
+  } catch (err) {
+    console.error('[SWARM] Error:', err)
+    res.status(500).json({ error: 'Swarm generation failed: ' + (err as Error).message })
+  }
+})
+
+// Генерация документа через AI (single agent — оставляем для обратной совместимости)
+app.post('/api/cases/:id/generate-document', async (req, res) => {
+  try {
+    const caseId = req.params.id
+    const { action, clientData, position, analysisContext } = req.body
+
+    const caseData = await db.select().from(cases).where(eq(cases.id, caseId))
+    if (!caseData.length) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+
+    const c = caseData[0]
+
+    const docNames: Record<string, string> = {
+      claim: 'Претензия',
+      lawsuit: 'Исковое заявление',
+      contract: 'Протокол разногласий',
+      objection: 'Возражения на исковое заявление',
+      response: 'Ответ на претензию',
+      counterclaim: 'Встречный иск',
+      settlement: 'Мировое соглашение',
+      deferment: 'Ходатайство об отсрочке исполнения'
+    }
+
+    const docName = docNames[action] || 'Документ'
+    const positionText = position === 'plaintiff' ? 'истец' : position === 'defendant' ? 'ответчик' : 'нейтральная сторона'
+
+    const prompt = `Ты юрист. Напиши полноценный юридический документ: "${docName}".
+
+ДЕЛО: ${c.title}
+ОПИСАНИЕ: ${c.description || 'Не указано'}
+АНАЛИЗ ДЕЛА: ${c.analysis || 'Нет анализа'}
+
+ПОЗИЦИЯ КЛИЕНТА: ${positionText}
+КОНТЕКСТ: ${analysisContext || 'Не указан'}
+
+ДАННЫЕ КЛИЕНТА:
+- ФИО: ${clientData?.fio || '________'}
+- Компания: ${clientData?.company || '________'}
+- ИНН: ${clientData?.inn || '________'}
+- ОГРН: ${clientData?.ogrn || '________'}
+- Адрес: ${clientData?.address || clientData?.personalAddress || '________'}
+- Телефон: ${clientData?.phone || '________'}
+- Email: ${clientData?.email || '________'}
+
+ТРЕБОВАНИЯ К ДОКУМЕНТУ:
+1. Развёрнутый, профессиональный текст на русском языке
+2. Конкретные ссылки на статьи ГК РФ, АПК РФ, ГПК РФ, ТК РФ, НК РФ или других законов
+3. Аргументы, основанные на фактах из анализа дела
+4. Чёткая структура: вводная часть, обоснование, требования, приложения
+5. Подпись с реквизитами клиента в конце
+
+Напиши полный текст документа, готовый к подаче/отправке. Без шаблонных фраз вроде "[Изложить аргументы]" — реальные аргументы на основе анализа.`
+
+    const generatedText = await chatSimpleNoTools(
+      'Ты профессиональный юрист. Пишешь документы строго по делу, с конкретными ссылками на актуальное законодательство РФ 2026 года. Пиши развёрнуто, детально, не менее 15000 знаков.',
+      prompt,
+      4000
+    )
+
+    res.json({ generatedText })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to generate document' })
+  }
+})
+
+// Сохранение сгенерированного документа в дело (после оплаты)
+app.post('/api/cases/:id/save-generated-doc', async (req, res) => {
+  try {
+    const caseId = req.params.id
+    const { filename, content } = req.body
+    
+    const docId = uuidv4()
+    const filePath = path.join('/var/www/legal-mrl/uploads', docId + '.docx')
+    
+    // Сохраняем контент как текстовый файл (frontend генерирует .docx blob)
+    // На самом деле frontend отправляет base64 blob .docx
+    const base64Data = content.split(',')[1] || content
+    const buffer = Buffer.from(base64Data, 'base64')
+    await fs.promises.writeFile(filePath, buffer)
+    
+    await db.insert(documents).values({
+      id: docId,
+      caseId: caseId,
+      name: filename || 'Документ.docx',
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      size: buffer.length,
+      path: filePath
+    })
+    
+    res.json({ success: true, documentId: docId })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to save document' })
+  }
+})
+
+// Serve static files from production dist
+app.use(express.static('/var/www/legal-mrl/dist'))
+
+
+// Создание платежа через ITPay
+app.post('/api/create-payment', async (req, res) => {
+  try {
+    const { amount, orderId, description, method = 'sbp', successUrl, successUrlDescription } = req.body
+    
+    const publicId = process.env.ITPAY_PUBLIC_ID
+    const apiSecret = process.env.ITPAY_API_SECRET
+    
+    if (!publicId || !apiSecret) {
+      return res.status(500).json({ error: 'ITPAY credentials not configured' })
+    }
+    
+    const clientPaymentId = orderId || `legal_mrl_${Date.now()}`
+    
+    const payload = {
+      amount: String(amount),
+      client_payment_id: clientPaymentId,
+      method: method,
+      description: description || 'Оплата юридических услуг',
+      success_url: successUrl || 'http://62.113.110.117:8081/payment/success',
+      success_url_description: successUrlDescription || 'Вернуться на сайт',
+      metadata: {
+        source: 'legal_mrl',
+        case_id: orderId || null
+      }
+    }
+    
+    const auth = Buffer.from(`${publicId}:${apiSecret}`).toString('base64')
+    
+    const itpayRes = await fetch('https://api.gw.itpay.ru/v1/payments', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+    
+    const itpayData = await itpayRes.json().catch(() => ({}))
+    
+    if (!itpayRes.ok) {
+      console.error('ITPay error:', itpayRes.status, itpayData)
+      return res.status(500).json({ 
+        error: 'ITPay API error', 
+        status: itpayRes.status, 
+        details: itpayData 
+      })
+    }
+    
+    // ITPay оборачивает ответ в поле data
+    const paymentData = itpayData.data || itpayData
+    
+    // Сохраняем в БД
+    await db.insert(payments).values({
+      id: uuidv4(),
+      paymentId: paymentData.id || 'unknown',
+      caseId: orderId || null,
+      amount: parseInt(amount),
+      status: paymentData.status || 'pending',
+      paymentMethod: method,
+      paymentData: { ...paymentData, payload }
+    })
+    
+    res.json({
+      success: true,
+      paymentId: paymentData.id,
+      status: paymentData.status,
+      amount: amount,
+      paymentUrl: paymentData.payment_qr_urls || null,
+      paymentQrImages: paymentData.payment_qr_images || null,
+      method: paymentData.method,
+      description: paymentData.description,
+      created: paymentData.created
+    })
+  } catch (err) {
+    console.error('Create payment error:', err)
+    res.status(500).json({ error: 'Failed to create payment', details: err.message })
+  }
+})
+
+// Webhook для ITPay (СБП и другие методы)
+app.post('/api/webhook/payment', async (req, res) => {
+  try {
+    const body = req.body
+    
+    // Логируем все входящие вебхуки для отладки
+    console.log('ITPay webhook received:', JSON.stringify(body, null, 2))
+    
+    // ITPay может отправлять данные в разных форматах — обрабатываем оба
+    const paymentId = body.id || body.payment_id || body.data?.id || 'unknown'
+    const status = body.status || body.data?.status || 'unknown'
+    const amount = body.amount || body.data?.amount || 0
+    const orderId = body.order_id || body.client_payment_id || body.metadata?.case_id || null
+    const paymentMethod = body.method || body.payment_method || 'unknown'
+    
+    // Сохраняем в БД
+    await db.insert(payments).values({
+      id: uuidv4(),
+      paymentId: String(paymentId),
+      caseId: orderId,
+      amount: amount ? Math.round(parseFloat(amount)) : 0,
+      status: String(status),
+      paymentMethod: String(paymentMethod),
+      paymentData: body
+    }).catch(err => {
+      // Если уже есть запись с таким paymentId — обновляем
+      console.log('Webhook insert skipped (duplicate?), will try update if needed:', err.message)
+    })
+    
+    // Если платёж успешен — обновляем дело
+    if (status === 'paid' || status === 'completed' || status === 'succeeded' || status === 'success') {
+      if (orderId) {
+        await db.update(cases)
+          .set({ status: 'paid', updatedAt: new Date() })
+          .where(eq(cases.id, orderId))
+          .catch(err => console.log('Case update skipped:', err.message))
+        
+        console.log('Payment successful for order:', orderId)
+      }
+    }
+    
+    // Всегда отвечаем 200, иначе ITPay будет ретраить
+    res.status(200).json({ status: 'ok', received: true })
+  } catch (err) {
+    console.error('Webhook error:', err)
+    res.status(200).json({ status: 'ok', error: 'processed' })
+  }
+})
+
+// Fallback to index.html for SPA
+app.get('*', (req, res) => {
+  res.sendFile('/var/www/legal-mrl/dist/index.html')
+})
+
+const PORT = process.env.PORT || 3002
+app.listen(PORT, () => {
+  console.log(`Legal MRL API running on port ${PORT}`)
+})
+
+async function chatSimpleNoTools(
+  systemContent: string,
+  userContent: string,
+  maxTokens: number = 3000
+): Promise<string> {
+  console.log('[CHAT-SIMPLE-NO-TOOLS] Start', systemContent.substring(0, 50))
+  
+  const completion = await moonshot.chat.completions.create({
+    model: 'kimi-k2.5',
+    messages: [
+      { role: 'system', content: GUARD_PROMPT + '\n\n' + systemContent },
+      { role: 'user', content: userContent }
+    ],
+    temperature: 1,
+    max_tokens: maxTokens,
+  })
+  
+  const content = completion.choices[0].message.content || ''
+  console.log('[CHAT-SIMPLE-NO-TOOLS] End, content length:', content.length)
+  return content
+}

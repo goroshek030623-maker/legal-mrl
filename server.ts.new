@@ -1,0 +1,105 @@
+// Скачивание документа
+app.get('/api/documents/:id', async (req, res) => {
+  try {
+    const docId = req.params.id
+    const docs = await db.select().from(documents).where(eq(documents.id, docId))
+    
+    if (!docs.length) {
+      return res.status(404).json({ error: 'Document not found' })
+    }
+    
+    const doc = docs[0]
+    res.download(doc.path, doc.name)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to download' })
+  }
+})
+
+// Оплата документа
+app.post('/api/documents/:id/pay', async (req, res) => {
+  try {
+    const docId = req.params.id
+    const docs = await db.select().from(documents).where(eq(documents.id, docId))
+    
+    if (!docs.length) {
+      return res.status(404).json({ error: 'Document not found' })
+    }
+    
+    const doc = docs[0]
+    const { amount = 500, method = 'sbp' } = req.body
+    
+    const publicId = process.env.ITPAY_PUBLIC_ID
+    const apiSecret = process.env.ITPAY_API_SECRET
+    
+    if (!publicId || !apiSecret) {
+      return res.status(500).json({ error: 'ITPAY credentials not configured' })
+    }
+    
+    const clientPaymentId = `legal_mrl_doc_${docId}_${Date.now()}`
+    
+    const payload = {
+      amount: String(amount),
+      client_payment_id: clientPaymentId,
+      method: method,
+      description: `Оплата документа: ${doc.name}`,
+      success_url: 'http://62.113.110.117:8081/payment/success',
+      success_url_description: 'Вернуться на сайт',
+      metadata: {
+        source: 'legal_mrl',
+        document_id: docId,
+        case_id: doc.caseId
+      }
+    }
+    
+    const auth = Buffer.from(`${publicId}:${apiSecret}`).toString('base64')
+    
+    const itpayRes = await fetch('https://api.gw.itpay.ru/v1/payments', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+    
+    const itpayData = await itpayRes.json().catch(() => ({}))
+    
+    if (!itpayRes.ok) {
+      console.error('ITPay error:', itpayRes.status, itpayData)
+      return res.status(500).json({ 
+        error: 'ITPay API error', 
+        status: itpayRes.status, 
+        details: itpayData 
+      })
+    }
+    
+    const paymentData = itpayData.data || itpayData
+    
+    await db.insert(payments).values({
+      id: uuidv4(),
+      paymentId: paymentData.id || 'unknown',
+      caseId: doc.caseId,
+      amount: parseInt(amount),
+      status: paymentData.status || 'pending',
+      paymentMethod: method,
+      paymentData: { ...paymentData, payload }
+    })
+    
+    res.json({
+      success: true,
+      paymentId: paymentData.id,
+      status: paymentData.status,
+      amount: amount,
+      paymentUrl: paymentData.payment_qr_urls || null,
+      paymentQrImages: paymentData.payment_qr_images || null,
+      method: paymentData.method,
+      description: paymentData.description,
+      created: paymentData.created
+    })
+  } catch (err) {
+    console.error('Document payment error:', err)
+    res.status(500).json({ error: 'Failed to create payment', details: (err as Error).message })
+  }
+})
