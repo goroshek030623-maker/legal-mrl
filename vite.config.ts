@@ -9,7 +9,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       "/api": {
-        target: "https://hearts-exactly-cached-infrared.trycloudflare.com",
+        target: process.env.VITE_API_URL || "http://localhost:3002",
         changeOrigin: true,
         secure: false
       }
