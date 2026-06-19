@@ -53,6 +53,14 @@ const authLimiter = rateLimit({
   message: { error: 'Too many auth attempts, please slow down' }
 })
 
+const botBlocker = (req, res, next) => {
+  const ua = (req.headers['user-agent'] || '').toLowerCase()
+  const botPatterns = ['bot', 'crawl', 'spider', 'scrape', 'curl', 'wget', 'python', 'http-client', 'go-http', 'java', 'postman']
+  if (botPatterns.some(p => ua.includes(p)) && !req.path.startsWith('/api/admin')) {
+    return res.status(403).json({ error: 'Forbidden' })
+  }
+  next()
+}
 
 const upload = multer({ dest: '/var/www/legal-mrl/uploads/' })
 
@@ -371,6 +379,7 @@ async function downloadFromMinIO(minioPath: string, localPath: string): Promise<
 // ===== END HELPERS =====
 app.use(cors())
 app.use('/api/', generalLimiter)
+app.use(botBlocker)
 app.use(express.json())
 
 // Принудительно UTF-8 для multipart
@@ -381,6 +390,8 @@ app.use((req, res, next) => {
   next()
 })
 
+// Apply bot protection
+app.use(botBlocker)
 app.use(generalLimiter)
 
 // Подключение к БД (drizzle)
@@ -411,14 +422,20 @@ const openai = new OpenAI({
 // Создание дела
 app.post('/api/cases', uploadLimiter, upload.array('files', 50), async (req, res) => {
   try {
-    const { title, description } = req.body
+    const { title, description, clientData } = req.body
     const caseId = uuidv4()
+    
+    let parsedClientData = null
+    if (clientData) {
+      try { parsedClientData = JSON.parse(clientData) } catch { parsedClientData = clientData }
+    }
     
     await db.insert(cases).values({
       id: caseId,
       title,
       description: description || null,
-      status: 'pending'
+      status: 'pending',
+      clientData: parsedClientData
     })
 
     // Сохраняем файлы
@@ -510,262 +527,9 @@ app.get('/api/dashboard', async (req, res) => {
     })
   } catch (err: any) {
     console.error('Dashboard error:', err)
-
-
-// Admin Dashboard (extended data)
-app.get('/api/admin/dashboard', async (req, res) => {
-  try {
-    // Verify admin
-    const token = req.headers.authorization?.replace('Bearer ', '')
-    if (!token) return res.status(401).json({ error: 'Unauthorized' })
-    
-    const decoded = jwt.verify(token, JWT_SECRET) as any
-    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' })
-
-    const totalCases = await db.select({ count: sql`count(*)` }).from(cases)
-    const activeCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'active'))
-    const pendingCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'pending'))
-    const paidCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'paid'))
-    const totalDocuments = await db.select({ count: sql`count(*)` }).from(documents)
-    const totalUsers = await db.select({ count: sql`count(*)` }).from(users)
-    
-    const totalPayments = await db.select({ count: sql`count(*)` }).from(payments)
-    const paidPayments = await db.select({ amount: sql`COALESCE(SUM(amount), 0)` })
-      .from(payments)
-      .where(sql`status IN ('paid', 'completed', 'success')`)
-    const pendingPayments = await db.select({ amount: sql`COALESCE(SUM(amount), 0)` })
-      .from(payments)
-      .where(sql`status NOT IN ('paid', 'completed', 'success')`)
-
-    // Recent cases (last 10)
-    const recentCases = await db.select({
-      id: cases.id,
-      title: cases.title,
-      status: cases.status,
-      createdAt: cases.createdAt
-    }).from(cases).orderBy(desc(cases.createdAt)).limit(10)
-
-    // Recent users (last 10)
-    const recentUsers = await db.select({
-      id: users.id,
-      email: users.email,
-      name: users.fullName,
-      isAdmin: users.isAdmin,
-      createdAt: users.createdAt
-    }).from(users).orderBy(desc(users.createdAt)).limit(10)
-
-    // Recent payments (last 10)
-    const recentPayments = await db.select({
-      id: payments.id,
-      amount: payments.amount,
-      status: payments.status,
-      caseId: payments.caseId,
-      createdAt: payments.createdAt
-    }).from(payments).orderBy(desc(payments.createdAt)).limit(10)
-
-    // Recent documents (last 10)
-    const recentDocs = await db.select({
-      id: documents.id,
-      name: documents.name,
-      caseId: documents.caseId,
-      uploadedAt: documents.uploadedAt
-    }).from(documents).orderBy(desc(documents.uploadedAt)).limit(10)
-
-    // Get case titles for payments and documents
-    const allCaseIds = [...recentPayments.map(p => p.caseId), ...recentDocs.map(d => d.caseId)].filter(Boolean)
-    const uniqueCaseIds = [...new Set(allCaseIds)]
-    
-    let caseMap = new Map()
-    if (uniqueCaseIds.length > 0) {
-      const caseData = await db.select({ id: cases.id, title: cases.title }).from(cases).where(sql`id IN (${uniqueCaseIds.map(() => '?').join(',')})`, uniqueCaseIds)
-      caseMap = new Map(caseData.map(c => [c.id, c.title]))
-    }
-
-    // Get document counts for cases
-    const caseIds = recentCases.map(c => c.id)
-    let docCounts = new Map()
-    if (caseIds.length > 0) {
-      const docData = await db.select({ 
-        caseId: documents.caseId, 
-        count: sql`count(*)` 
-      }).from(documents).where(sql`case_id IN (${caseIds.map(() => '?').join(',')})`, caseIds).groupBy(documents.caseId)
-      docCounts = new Map(docData.map(d => [d.caseId, Number(d.count)]))
-    }
-
-    res.json({
-      cases: {
-        total: Number(totalCases[0]?.count || 0),
-        active: Number(activeCases[0]?.count || 0),
-        pending: Number(pendingCases[0]?.count || 0),
-        paid: Number(paidCases[0]?.count || 0),
-        recent: recentCases.map(c => ({
-          ...c,
-          clientName: c.title,
-          documentCount: docCounts.get(c.id) || 0
-        }))
-      },
-      documents: {
-        total: Number(totalDocuments[0]?.count || 0),
-        recent: recentDocs.map(d => ({
-          id: d.id,
-          title: d.name,
-          caseTitle: caseMap.get(d.caseId) || '—',
-          createdAt: d.uploadedAt,
-          status: 'uploaded'
-        }))
-      },
-      payments: {
-        total: Number(totalPayments[0]?.count || 0),
-        paidAmount: Number(paidPayments[0]?.amount || 0),
-        pendingAmount: Number(pendingPayments[0]?.amount || 0),
-        currency: '₽',
-        recent: recentPayments.map(p => ({
-          ...p,
-          caseTitle: caseMap.get(p.caseId) || '—'
-        }))
-      },
-      users: {
-        total: Number(totalUsers[0]?.count || 0),
-        recent: recentUsers.map(u => ({
-          ...u,
-          isAdmin: Boolean(u.isAdmin),
-          caseCount: 0
-        }))
-      }
-    })
-  } catch (err: any) {
-    console.error('Admin dashboard error:', err)
-    res.status(500).json({ error: 'Failed to fetch admin dashboard', details: err.message })
+    res.status(500).json({ error: 'Failed to fetch dashboard', details: err.message })
   }
 })
-
-// Admin Dashboard (extended data)
-app.get('/api/admin/dashboard', async (req, res) => {
-  try {
-    // Verify admin
-    const token = req.headers.authorization?.replace('Bearer ', '')
-    if (!token) return res.status(401).json({ error: 'Unauthorized' })
-    
-    const decoded = jwt.verify(token, JWT_SECRET) as any
-    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' })
-
-    const totalCases = await db.select({ count: sql`count(*)` }).from(cases)
-    const activeCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'active'))
-    const pendingCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'pending'))
-    const paidCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'paid'))
-    const totalDocuments = await db.select({ count: sql`count(*)` }).from(documents)
-    const totalUsers = await db.select({ count: sql`count(*)` }).from(users)
-    
-    const totalPayments = await db.select({ count: sql`count(*)` }).from(payments)
-    const paidPayments = await db.select({ amount: sql`COALESCE(SUM(amount), 0)` })
-      .from(payments)
-      .where(sql`status IN ('paid', 'completed', 'success')`)
-    const pendingPayments = await db.select({ amount: sql`COALESCE(SUM(amount), 0)` })
-      .from(payments)
-      .where(sql`status NOT IN ('paid', 'completed', 'success')`)
-
-    // Recent cases (last 10)
-    const recentCases = await db.select({
-      id: cases.id,
-      title: cases.title,
-      status: cases.status,
-      createdAt: cases.createdAt
-    }).from(cases).orderBy(desc(cases.createdAt)).limit(10)
-
-    // Recent users (last 10)
-    const recentUsers = await db.select({
-      id: users.id,
-      email: users.email,
-      name: users.fullName,
-      isAdmin: users.isAdmin,
-      createdAt: users.createdAt
-    }).from(users).orderBy(desc(users.createdAt)).limit(10)
-
-    // Recent payments (last 10)
-    const recentPayments = await db.select({
-      id: payments.id,
-      amount: payments.amount,
-      status: payments.status,
-      caseId: payments.caseId,
-      createdAt: payments.createdAt
-    }).from(payments).orderBy(desc(payments.createdAt)).limit(10)
-
-    // Recent documents (last 10)
-    const recentDocs = await db.select({
-      id: documents.id,
-      name: documents.name,
-      caseId: documents.caseId,
-      uploadedAt: documents.uploadedAt
-    }).from(documents).orderBy(desc(documents.uploadedAt)).limit(10)
-
-    // Get case titles for payments and documents
-    const allCaseIds = [...recentPayments.map(p => p.caseId), ...recentDocs.map(d => d.caseId)].filter(Boolean)
-    const uniqueCaseIds = [...new Set(allCaseIds)]
-    
-    let caseMap = new Map()
-    if (uniqueCaseIds.length > 0) {
-      const caseData = await db.select({ id: cases.id, title: cases.title }).from(cases).where(sql`id IN (${uniqueCaseIds.map(() => '?').join(',')})`, uniqueCaseIds)
-      caseMap = new Map(caseData.map(c => [c.id, c.title]))
-    }
-
-    // Get document counts for cases
-    const caseIds = recentCases.map(c => c.id)
-    let docCounts = new Map()
-    if (caseIds.length > 0) {
-      const docData = await db.select({ 
-        caseId: documents.caseId, 
-        count: sql`count(*)` 
-      }).from(documents).where(sql`case_id IN (${caseIds.map(() => '?').join(',')})`, caseIds).groupBy(documents.caseId)
-      docCounts = new Map(docData.map(d => [d.caseId, Number(d.count)]))
-    }
-
-    res.json({
-      cases: {
-        total: Number(totalCases[0]?.count || 0),
-        active: Number(activeCases[0]?.count || 0),
-        pending: Number(pendingCases[0]?.count || 0),
-        paid: Number(paidCases[0]?.count || 0),
-        recent: recentCases.map(c => ({
-          ...c,
-          clientName: c.title,
-          documentCount: docCounts.get(c.id) || 0
-        }))
-      },
-      documents: {
-        total: Number(totalDocuments[0]?.count || 0),
-        recent: recentDocs.map(d => ({
-          id: d.id,
-          title: d.name,
-          caseTitle: caseMap.get(d.caseId) || '—',
-          createdAt: d.uploadedAt,
-          status: 'uploaded'
-        }))
-      },
-      payments: {
-        total: Number(totalPayments[0]?.count || 0),
-        paidAmount: Number(paidPayments[0]?.amount || 0),
-        pendingAmount: Number(pendingPayments[0]?.amount || 0),
-        currency: '₽',
-        recent: recentPayments.map(p => ({
-          ...p,
-          caseTitle: caseMap.get(p.caseId) || '—'
-        }))
-      },
-      users: {
-        total: Number(totalUsers[0]?.count || 0),
-        recent: recentUsers.map(u => ({
-          ...u,
-          isAdmin: Boolean(u.isAdmin),
-          caseCount: 0
-        }))
-      }
-    })
-  } catch (err: any) {
-    console.error('Admin dashboard error:', err)
-    res.status(500).json({ error: 'Failed to fetch admin dashboard', details: err.message })
-  }
-})
-
 
 
 // Получение дела
@@ -982,7 +746,6 @@ app.post('/api/cases/:id/analyze', aiLimiter, async (req, res) => {
     
     // Fallback: прямой вызов OpenAI
     if (!usedMicroservice) {
-      const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
       const prompt = `
 Проанализируй юридическую ситуацию:
 
@@ -1230,8 +993,7 @@ app.post('/api/cases/:id/generate', aiLimiter, async (req, res) => {
       }
     }
     
-    const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
-      const prompt = `ЗАДАЧА: Подготовь юридический документ типа "${documentType}"
+    const prompt = `ЗАДАЧА: Подготовь юридический документ типа "${documentType}"
 
 ДЕЛО: ${c.title}
 ОПИСАНИЕ: ${c.description || 'Не указано'}
@@ -1259,7 +1021,7 @@ BODY:
     const completion = await openai.chat.completions.create({
       model: 'kimi-k2.5',
       messages: [
-        { role: 'system', content: 'Ты юрист с 20-летним стажем. Составляешь юридические документы любого типа: судебные, договорные, претензии. Определяешь категорию документа самостоятельно и применяешь правильную структуру согласно законодательству РФ (2026 год). ИСПОЛЬЗУЙ ТОЛЬКО предоставленные данные клиента. НЕ выдумывай имена, суммы, даты, адреса, реквизиты, номера договоров, паспортные данные. Если данных недостаточно — укажи [УТОЧНИТЬ]. Пиши ТОЛЬКО по делу, без воды и общих фраз. Текст должен быть ЧИСТЫМ — без markdown-разметки (*, **, #, ` и т.д.). Абзацы отделяй пустой строкой. НЕ используй списки с маркерами — пиши связным текстом. Максимум 35000 знаков. Соблюдай стандарты оформления документов для судов РФ: шрифт Times New Roman 14pt, межстрочный интервал 1.5, отступ первой строки 1.25 см, поля: левое 3 см, правое 1.5 см, верхнее и нижнее 2 см.' },
+        { role: 'system', content: 'Ты юрист с 20-летним стажем. Составляешь юридические документы любого типа: судебные, договорные, претензии. Определяешь категорию документа самостоятельно и применяешь правильную структуру. ИСПОЛЬЗУЙ ТОЛЬКО предоставленные данные клиента. НЕ выдумывай имена, суммы, даты, адреса, реквизиты, номера договоров, паспортные данные. Если данных недостаточно — укажи [УТОЧНИТЬ]. Пиши ТОЛЬКО по делу, без воды и общих фраз. Текст должен быть ЧИСТЫМ — без markdown-разметки (*, **, #, ` и т.д.). Максимум 35000 знаков.' },
         { role: 'user', content: prompt }
       ],
       temperature: 1,
@@ -1392,7 +1154,6 @@ app.post('/api/cases/:id/generate-document', aiLimiter, async (req, res) => {
 
     // 2. Fallback: прямой вызов OpenAI
     if (!usedMicroservice) {
-      const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
       const prompt = `
 Подготовь юридический документ: ${documentType}
 
@@ -1408,7 +1169,7 @@ ${(c.analysis || '').substring(0, 4000)}
 
 ` : ''}${documentsText ? 'Контекст из документов:' + documentsText : ''}
 
-Сегодня ${new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}. Составь юридический документ: ${documentType}
+Сегодня 18 июня 2026 года. Составь юридический документ: ${documentType}
 
 ПРАВИЛА СОСТАВЛЕНИЯ:
 
@@ -1435,7 +1196,7 @@ BODY:
       const completion = await openai.chat.completions.create({
         model: 'kimi-k2.5',
         messages: [
-          { role: 'system', content: 'Ты юрист с 20-летним стажем. Составляешь юридические документы любого типа: судебные, договорные, претензии. Определяешь категорию документа самостоятельно и применяешь правильную структуру согласно законодательству РФ (2026 год). ИСПОЛЬЗУЙ ТОЛЬКО предоставленные данные клиента. НЕ выдумывай имена, суммы, даты, адреса, реквизиты, номера договоров, паспортные данные. Если данных недостаточно — укажи [УТОЧНИТЬ]. Пиши ТОЛЬКО по делу, без воды и общих фраз. Текст должен быть ЧИСТЫМ — без markdown-разметки (*, **, #, ` и т.д.). Абзацы отделяй пустой строкой. НЕ используй списки с маркерами — пиши связным текстом. Максимум 35000 знаков. Соблюдай стандарты оформления документов для судов РФ: шрифт Times New Roman 14pt, межстрочный интервал 1.5, отступ первой строки 1.25 см, поля: левое 3 см, правое 1.5 см, верхнее и нижнее 2 см.' },
+          { role: 'system', content: 'Ты юрист с 20-летним стажем. Составляешь юридические документы любого типа: судебные, договорные, претензии. Определяешь категорию документа самостоятельно и применяешь правильную структуру. ИСПОЛЬЗУЙ ТОЛЬКО предоставленные данные клиента. НЕ выдумывай имена, суммы, даты, адреса, реквизиты, номера договоров, паспортные данные. Если данных недостаточно — укажи [УТОЧНИТЬ]. Пиши ТОЛЬКО по делу, без воды и общих фраз. Текст должен быть ЧИСТЫМ — без markdown-разметки (*, **, #, ` и т.д.). Максимум 35000 знаков.' },
           { role: 'user', content: prompt }
         ],
         temperature: 1,
@@ -1559,8 +1320,7 @@ app.post('/api/documents/:id/extract', async (req, res) => {
       }
     }
 
-    const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
-      const prompt = `
+    const prompt = `
 Проанализируй документ и извлеки ключевые юридические факты:
 
 Название документа: ${doc.name}
@@ -2036,81 +1796,6 @@ app.get("/api/admin/ai-logs/:caseId", async (req, res) => {
   }
 })
 
-// ===== ADMIN: ENHANCED STATS =====
-app.get('/api/admin/stats', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '')
-    if (!token) return res.status(401).json({ error: 'Unauthorized' })
-    
-    const decoded = jwt.verify(token, JWT_SECRET) as any
-    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' })
-
-    const days = parseInt(req.query.days as string) || 30
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-
-    // Daily stats
-    const dailyCases = await db.select({
-      date: sql`DATE(created_at)`,
-      count: sql`count(*)`,
-    }).from(cases).where(sql`created_at >= ?`, since).groupBy(sql`DATE(created_at)`).orderBy(sql`DATE(created_at)`)
-
-    const dailyPayments = await db.select({
-      date: sql`DATE(created_at)`,
-      count: sql`count(*)`,
-      amount: sql`COALESCE(SUM(amount), 0)`,
-    }).from(payments).where(sql`created_at >= ?`, since).groupBy(sql`DATE(created_at)`).orderBy(sql`DATE(created_at)`)
-
-    const dailyUsers = await db.select({
-      date: sql`DATE(created_at)`,
-      count: sql`count(*)`,
-    }).from(users).where(sql`created_at >= ?`, since).groupBy(sql`DATE(created_at)`).orderBy(sql`DATE(created_at)`)
-
-    // Case statuses
-    const statusBreakdown = await db.select({
-      status: cases.status,
-      count: sql`count(*)`,
-    }).from(cases).groupBy(cases.status)
-
-    // Top documents by case
-    const topCases = await db.select({
-      id: cases.id,
-      title: cases.title,
-      docCount: sql`count(${documents.id})`,
-    }).from(cases).leftJoin(documents, eq(documents.caseId, cases.id))
-      .groupBy(cases.id).orderBy(desc(sql`count(${documents.id})`)).limit(10)
-
-    // Conversion rate: cases with payments / total cases
-    const casesWithPayments = await db.select({ count: sql`count(DISTINCT ${payments.caseId})` })
-      .from(payments).where(sql`status IN ('paid', 'completed', 'success')`)
-    const totalCasesCount = await db.select({ count: sql`count(*)` }).from(cases)
-    const conversionRate = totalCasesCount[0]?.count 
-      ? Math.round((casesWithPayments[0]?.count || 0) / totalCasesCount[0].count * 100) 
-      : 0
-
-    // Average payment
-    const avgPayment = await db.select({ avg: sql`COALESCE(AVG(amount), 0)` })
-      .from(payments).where(sql`status IN ('paid', 'completed', 'success')`)
-
-    res.json({
-      daily: {
-        cases: dailyCases,
-        payments: dailyPayments,
-        users: dailyUsers,
-      },
-      breakdown: {
-        statuses: statusBreakdown,
-        conversionRate,
-        averagePayment: Math.round(avgPayment[0]?.avg || 0),
-      },
-      topCases,
-      period: { days, since: since.toISOString() },
-    })
-  } catch (err: any) {
-    console.error('Admin stats error:', err)
-    res.status(500).json({ error: 'Failed to fetch stats', details: err.message })
-  }
-})
-
 const PORT = process.env.PORT || 3002
 
 // ===== ADMIN: BATCH SUMMARIZE =====
@@ -2160,116 +1845,113 @@ app.post('/api/admin/summarize-all', async (req, res) => {
   }
 })
 
-// ===== PAYMENTS =====
-// Создание платежа для документа
-app.post('/api/documents/:id/pay', async (req, res) => {
+
+// ===== ADMIN: CLEANUP PENDING CASES =====
+app.post('/api/admin/cleanup-pending-cases', async (req, res) => {
   try {
-    const documentId = req.params.id
-    const { amount = 499 } = req.body // По умолчанию 499 руб.
-    
-    // Проверяем что документ существует
-    const docData = await db.select().from(documents).where(eq(documents.id, documentId))
-    if (!docData.length) {
-      return res.status(404).json({ error: 'Document not found' })
+    const token = req.headers.authorization?.replace('Bearer ', '')
+    if (!token) return res.status(401).json({ error: 'Unauthorized' })
+    const decoded = jwt.verify(token, JWT_SECRET) as any
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' })
+
+    const hours = parseInt(req.query.hours as string) || 24
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000)
+
+    // Find pending/waiting cases older than cutoff
+    const oldCases = await db.select()
+      .from(cases)
+      .where(sql`status IN ('pending', 'waiting', 'draft') AND updated_at < ${cutoff}`)
+      .orderBy(cases.updatedAt)
+
+    const closedIds: string[] = []
+    for (const c of oldCases) {
+      await db.update(cases)
+        .set({ status: 'closed', updatedAt: new Date() })
+        .where(eq(cases.id, c.id))
+      closedIds.push(c.id)
     }
-    
-    const paymentId = uuidv4()
-    const now = new Date()
-    
-    // Создаём запись о платеже
-    await db.insert(payments).values({
-      id: paymentId,
-      paymentId: `pay_${Date.now()}`,
-      documentId: documentId,
-      amount: amount,
-      status: 'pending',
-      paymentMethod: 'qr_code',
-      paymentData: JSON.stringify({
-        qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upay:${amount}`,
-        expiresAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString() // 30 минут
-      }),
-      createdAt: now
-    })
-    
+
     res.json({
       success: true,
-      paymentId,
-      amount,
-      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upay:${amount}`,
-      status: 'pending',
-      expiresAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString()
+      closed: closedIds.length,
+      hours,
+      cutoff: cutoff.toISOString(),
+      closedIds
     })
   } catch (err: any) {
-    console.error('Payment creation error:', err)
-    res.status(500).json({ error: 'Failed to create payment', details: err.message })
+    console.error('Cleanup pending cases error:', err)
+    res.status(500).json({ error: 'Failed to cleanup cases', details: err.message })
   }
 })
-
-// Проверка статуса платежа
-app.get('/api/payments/:id/status', async (req, res) => {
-  try {
-    const paymentId = req.params.id
-    
-    const paymentData = await db.select().from(payments).where(eq(payments.id, paymentId))
-    if (!paymentData.length) {
-      return res.status(404).json({ error: 'Payment not found' })
-    }
-    
-    const payment = paymentData[0]
-    const paymentDataParsed = payment.paymentData ? JSON.parse(payment.paymentData as string) : {}
-    
-    res.json({
-      id: payment.id,
-      status: payment.status,
-      amount: payment.amount,
-      documentId: payment.documentId,
-      createdAt: payment.createdAt,
-      ...paymentDataParsed
-    })
-  } catch (err: any) {
-    console.error('Payment status error:', err)
-    res.status(500).json({ error: 'Failed to get payment status', details: err.message })
-  }
-})
-
-// Подтверждение платежа (вебхук или ручное)
-app.post('/api/payments/:id/confirm', async (req, res) => {
-  try {
-    const paymentId = req.params.id
-    
-    const paymentData = await db.select().from(payments).where(eq(payments.id, paymentId))
-    if (!paymentData.length) {
-      return res.status(404).json({ error: 'Payment not found' })
-    }
-    
-    // Обновляем статус на completed
-    await db.update(payments)
-      .set({ status: 'completed', updatedAt: new Date() })
-      .where(eq(payments.id, paymentId))
-    
-    // Если платеж привязан к документу — отмечаем документ как оплаченный
-    const payment = paymentData[0]
-    if (payment.documentId) {
-      await db.update(documents)
-        .set({ 
-          status: 'paid',
-          updatedAt: new Date()
-        })
-        .where(eq(documents.id, payment.documentId))
-    }
-    
-    res.json({
-      success: true,
-      paymentId,
-      status: 'completed',
-      message: 'Payment confirmed. Document is now available for download.'
-    })
-  } catch (err: any) {
-    console.error('Payment confirm error:', err)
-    res.status(500).json({ error: 'Failed to confirm payment', details: err.message })
-  }
-})
-
 app.listen(PORT, () => {
   console.log(`DokIQ API running on port ${PORT}`)
+})
+
+// ===== ADMIN ENDPOINTS =====
+app.get('/api/admin/dashboard', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '')
+    if (!token) return res.status(401).json({ error: 'Unauthorized' })
+    const decoded = jwt.verify(token, JWT_SECRET) as any
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' })
+    
+    const totalCases = await db.select({ count: sql`count(*)` }).from(cases)
+    const activeCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'active'))
+    const pendingCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'pending'))
+    const paidCases = await db.select({ count: sql`count(*)` }).from(cases).where(eq(cases.status, 'paid'))
+    const totalDocuments = await db.select({ count: sql`count(*)` }).from(documents)
+    const totalUsers = await db.select({ count: sql`count(*)` }).from(users)
+    const totalPayments = await db.select({ count: sql`count(*)` }).from(payments)
+    const paidPayments = await db.select({ amount: sql`COALESCE(SUM(amount), 0)` }).from(payments).where(sql`status IN ('paid', 'completed', 'success')`)
+    const pendingPayments = await db.select({ amount: sql`COALESCE(SUM(amount), 0)` }).from(payments).where(sql`status NOT IN ('paid', 'completed', 'success')`)
+    
+    const recentCases = await db.select({ id: cases.id, title: cases.title, status: cases.status, createdAt: cases.createdAt })
+      .from(cases).orderBy(desc(cases.createdAt)).limit(10)
+    const recentUsers = await db.select({ id: users.id, email: users.email, name: users.fullName, isAdmin: users.isAdmin, createdAt: users.createdAt })
+      .from(users).orderBy(desc(users.createdAt)).limit(10)
+    const recentPayments = await db.select({ id: payments.id, amount: payments.amount, status: payments.status, createdAt: payments.createdAt })
+      .from(payments).orderBy(desc(payments.createdAt)).limit(10)
+    
+    res.json({
+      cases: { total: Number(totalCases[0]?.count), active: Number(activeCases[0]?.count), pending: Number(pendingCases[0]?.count), paid: Number(paidCases[0]?.count), recent: recentCases },
+      documents: { total: Number(totalDocuments[0]?.count), recent: [] },
+      payments: { total: Number(totalPayments[0]?.count), paidAmount: Number(paidPayments[0]?.amount), pendingAmount: Number(pendingPayments[0]?.amount), currency: '₽', recent: recentPayments },
+      users: { total: Number(totalUsers[0]?.count), recent: recentUsers }
+    })
+  } catch (err: any) {
+    console.error('Admin dashboard error:', err)
+    res.status(500).json({ error: 'Failed to fetch admin dashboard', details: err.message })
+  }
+})
+
+app.get('/api/admin/stats', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '')
+    if (!token) return res.status(401).json({ error: 'Unauthorized' })
+    const decoded = jwt.verify(token, JWT_SECRET) as any
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' })
+    
+    const days = parseInt(req.query.days as string) || 30
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+    
+    const dailyCases = await db.select({ date: sql`DATE(created_at)`, count: sql`count(*)` })
+      .from(cases).where(sql`created_at >= ?`, since).groupBy(sql`DATE(created_at)`).orderBy(sql`DATE(created_at)`)
+    const dailyPayments = await db.select({ date: sql`DATE(created_at)`, count: sql`count(*)`, amount: sql`COALESCE(SUM(amount), 0)` })
+      .from(payments).where(sql`created_at >= ?`, since).groupBy(sql`DATE(created_at)`).orderBy(sql`DATE(created_at)`)
+    
+    const statusBreakdown = await db.select({ status: cases.status, count: sql`count(*)` }).from(cases).groupBy(cases.status)
+    const casesWithPayments = await db.select({ count: sql`count(DISTINCT ${payments.caseId})` }).from(payments).where(sql`status IN ('paid', 'completed', 'success')`)
+    const totalCasesCount = await db.select({ count: sql`count(*)` }).from(cases)
+    const conversionRate = totalCasesCount[0]?.count ? Math.round((casesWithPayments[0]?.count || 0) / totalCasesCount[0].count * 100) : 0
+    const avgPayment = await db.select({ avg: sql`COALESCE(AVG(amount), 0)` }).from(payments).where(sql`status IN ('paid', 'completed', 'success')`)
+    
+    res.json({
+      daily: { cases: dailyCases, payments: dailyPayments, users: [] },
+      breakdown: { statuses: statusBreakdown, conversionRate, averagePayment: Math.round(avgPayment[0]?.avg || 0) },
+      period: { days, since: since.toISOString() }
+    })
+  } catch (err: any) {
+    console.error('Admin stats error:', err)
+    res.status(500).json({ error: 'Failed to fetch stats', details: err.message })
+  }
 })

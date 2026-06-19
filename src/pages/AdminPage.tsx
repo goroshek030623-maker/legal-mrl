@@ -419,6 +419,24 @@ export default function AdminPage() {
                 <div className="text-orange-400 text-sm">Документов в системе</div>
                 <div className="text-white text-xl font-bold">{data.documents.total}</div>
               </div>
+              {/* Cleanup Button */}
+              <div className="p-3 bg-red-500/10 rounded-lg border border-red-500/20">
+                <div className="text-red-400 text-sm">⚠️ Очистка висящих дел</div>
+                <div className="text-white text-xs mb-2">Закрыть дела в ожидании &gt;24ч</div>
+                <button
+                  onClick={async () => {
+                    if (!confirm('Закрыть все дела в статусе pending/waiting старше 24 часов?')) return;
+                    const token = localStorage.getItem('legal_mrl_token');
+                    const res = await fetch('/api/admin/cleanup-pending-cases?hours=24', { method: 'POST', headers: { Authorization: 'Bearer ' + token }});
+                    const data = await res.json();
+                    if (data.success) { alert('Закрыто дел: ' + data.closed); location.reload(); }
+                    else alert('Ошибка: ' + (data.error || 'Unknown'));
+                  }}
+                  className="w-full px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-sm rounded transition-colors"
+                >
+                  🧹 Очистить
+                </button>
+              </div>
             </div>
           </div>
           

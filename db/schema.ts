@@ -12,7 +12,8 @@ export const cases = mysqlTable('cases', {
   analysis: text('analysis'),
   recommendedActions: text('recommended_actions'),
   generatedDocument: text('generated_document', { mode: 'long' }),
-  userId: varchar('user_id', { length: 36 })
+  userId: varchar("user_id", { length: 36 }),
+  clientData: json("client_data")
 })
 
 export const documents = mysqlTable('documents', {

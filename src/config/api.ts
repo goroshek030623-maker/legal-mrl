@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 // Базовый URL для API запросов
 // В development: используется Vite proxy (относительные пути)
 // В production: используется VITE_API_URL из .env или fallback
