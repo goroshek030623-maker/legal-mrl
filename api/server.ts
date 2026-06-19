@@ -411,14 +411,20 @@ const openai = new OpenAI({
 // Создание дела
 app.post('/api/cases', uploadLimiter, upload.array('files', 50), async (req, res) => {
   try {
-    const { title, description } = req.body
+    const { title, description, clientData } = req.body
     const caseId = uuidv4()
+    
+    let parsedClientData = null
+    if (clientData) {
+      try { parsedClientData = JSON.parse(clientData) } catch { parsedClientData = clientData }
+    }
     
     await db.insert(cases).values({
       id: caseId,
       title,
       description: description || null,
-      status: 'pending'
+      status: 'pending',
+      clientData: parsedClientData
     })
 
     // Сохраняем файлы
