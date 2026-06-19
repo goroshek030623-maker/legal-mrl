@@ -8,8 +8,9 @@ export default defineConfig({
     port: 5174,
     proxy: {
       "/api": {
-        target: "http://localhost:3002",
-        changeOrigin: true
+        target: "https://hearts-exactly-cached-infrared.trycloudflare.com",
+        changeOrigin: true,
+        secure: false
       }
     }
   },
