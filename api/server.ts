@@ -2036,6 +2036,81 @@ app.get("/api/admin/ai-logs/:caseId", async (req, res) => {
   }
 })
 
+// ===== ADMIN: ENHANCED STATS =====
+app.get('/api/admin/stats', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '')
+    if (!token) return res.status(401).json({ error: 'Unauthorized' })
+    
+    const decoded = jwt.verify(token, JWT_SECRET) as any
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' })
+
+    const days = parseInt(req.query.days as string) || 30
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+
+    // Daily stats
+    const dailyCases = await db.select({
+      date: sql`DATE(created_at)`,
+      count: sql`count(*)`,
+    }).from(cases).where(sql`created_at >= ?`, since).groupBy(sql`DATE(created_at)`).orderBy(sql`DATE(created_at)`)
+
+    const dailyPayments = await db.select({
+      date: sql`DATE(created_at)`,
+      count: sql`count(*)`,
+      amount: sql`COALESCE(SUM(amount), 0)`,
+    }).from(payments).where(sql`created_at >= ?`, since).groupBy(sql`DATE(created_at)`).orderBy(sql`DATE(created_at)`)
+
+    const dailyUsers = await db.select({
+      date: sql`DATE(created_at)`,
+      count: sql`count(*)`,
+    }).from(users).where(sql`created_at >= ?`, since).groupBy(sql`DATE(created_at)`).orderBy(sql`DATE(created_at)`)
+
+    // Case statuses
+    const statusBreakdown = await db.select({
+      status: cases.status,
+      count: sql`count(*)`,
+    }).from(cases).groupBy(cases.status)
+
+    // Top documents by case
+    const topCases = await db.select({
+      id: cases.id,
+      title: cases.title,
+      docCount: sql`count(${documents.id})`,
+    }).from(cases).leftJoin(documents, eq(documents.caseId, cases.id))
+      .groupBy(cases.id).orderBy(desc(sql`count(${documents.id})`)).limit(10)
+
+    // Conversion rate: cases with payments / total cases
+    const casesWithPayments = await db.select({ count: sql`count(DISTINCT ${payments.caseId})` })
+      .from(payments).where(sql`status IN ('paid', 'completed', 'success')`)
+    const totalCasesCount = await db.select({ count: sql`count(*)` }).from(cases)
+    const conversionRate = totalCasesCount[0]?.count 
+      ? Math.round((casesWithPayments[0]?.count || 0) / totalCasesCount[0].count * 100) 
+      : 0
+
+    // Average payment
+    const avgPayment = await db.select({ avg: sql`COALESCE(AVG(amount), 0)` })
+      .from(payments).where(sql`status IN ('paid', 'completed', 'success')`)
+
+    res.json({
+      daily: {
+        cases: dailyCases,
+        payments: dailyPayments,
+        users: dailyUsers,
+      },
+      breakdown: {
+        statuses: statusBreakdown,
+        conversionRate,
+        averagePayment: Math.round(avgPayment[0]?.avg || 0),
+      },
+      topCases,
+      period: { days, since: since.toISOString() },
+    })
+  } catch (err: any) {
+    console.error('Admin stats error:', err)
+    res.status(500).json({ error: 'Failed to fetch stats', details: err.message })
+  }
+})
+
 const PORT = process.env.PORT || 3002
 
 // ===== ADMIN: BATCH SUMMARIZE =====

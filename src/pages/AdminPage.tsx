@@ -2,6 +2,21 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
+interface StatsData {
+  daily: {
+    cases: Array<{ date: string; count: number }>
+    payments: Array<{ date: string; count: number; amount: number }>
+    users: Array<{ date: string; count: number }>
+  }
+  breakdown: {
+    statuses: Array<{ status: string; count: number }>
+    conversionRate: number
+    averagePayment: number
+  }
+  topCases: Array<{ id: string; title: string; docCount: number }>
+  period: { days: number; since: string }
+}
+
 interface DashboardData {
   cases: { total: number; active: number; pending: number; paid: number; recent: CaseItem[] }
   documents: { total: number; recent: DocItem[] }
@@ -49,10 +64,12 @@ export default function AdminPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [data, setData] = useState<DashboardData | null>(null)
+  const [stats, setStats] = useState<StatsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [searchQuery, setSearchQuery] = useState('')
+  const [statsDays, setStatsDays] = useState(30)
 
   useEffect(() => {
     if (!user?.isAdmin) {
@@ -75,6 +92,17 @@ export default function AdminPage() {
       .then(d => {
         if (d.error) throw new Error(d.error)
         setData(d)
+        // Load extended stats
+        return fetch(`/api/admin/stats?days=${statsDays}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      })
+      .then(async r => {
+        if (!r.ok) return null
+        return r.json()
+      })
+      .then(s => {
+        if (s && !s.error) setStats(s)
       })
       .catch(e => {
         if (e.message === 'API_NOT_FOUND') {
@@ -115,7 +143,7 @@ export default function AdminPage() {
         }
       })
       .finally(() => setLoading(false))
-  }, [user, navigate])
+  }, [user, navigate, statsDays])
 
   if (!user?.isAdmin) return null
 
@@ -306,72 +334,148 @@ export default function AdminPage() {
 
           {/* Charts Row */}
           <div className="grid md:grid-cols-3 gap-6">
-            {/* Case Status Distribution */}
+            {/* Daily Activity Chart */}
+            <div className="bg-slate-800 rounded-xl border border-slate-700 p-5 md:col-span-2">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">📈 Активность за {stats?.period?.days || 30} дней</h3>
+                <div className="flex gap-1">
+                  {[7, 30, 90].map(d => (
+                    <button key={d} onClick={() => setStatsDays(d)}
+                      className={`px-2 py-1 text-xs rounded ${statsDays === d ? 'bg-purple-600 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
+                      {d}д
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {stats?.daily?.cases?.length ? (
+                <div className="space-y-4">
+                  {/* Cases bar chart */}
+                  <div>
+                    <div className="text-sm text-slate-400 mb-2">Новые дела</div>
+                    <div className="flex items-end gap-1 h-24">
+                      {stats.daily.cases.map((day: any, i: number) => {
+                        const max = Math.max(...stats.daily.cases.map((d: any) => d.count), 1)
+                        const h = (day.count / max) * 100
+                        return (
+                          <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
+                            <div className="w-full bg-blue-500/80 rounded-t hover:bg-blue-400 transition-all relative"
+                              style={{ height: `${Math.max(h, 4)}%` }}>
+                              <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10">
+                                {day.count} ({new Date(day.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })})
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  {/* Payments bar chart */}
+                  <div>
+                    <div className="text-sm text-slate-400 mb-2">Платежи (₽)</div>
+                    <div className="flex items-end gap-1 h-24">
+                      {stats.daily.payments.map((day: any, i: number) => {
+                        const max = Math.max(...stats.daily.payments.map((d: any) => Number(d.amount)), 1)
+                        const h = (Number(day.amount) / max) * 100
+                        return (
+                          <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
+                            <div className="w-full bg-emerald-500/80 rounded-t hover:bg-emerald-400 transition-all relative"
+                              style={{ height: `${Math.max(h, 4)}%` }}>
+                              <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10">
+                                {Number(day.amount).toLocaleString()}₽
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-slate-500 text-center py-8">Нет данных за выбранный период</div>
+              )}
+            </div>
+
+            {/* Key Metrics */}
+            <div className="bg-slate-800 rounded-xl border border-slate-700 p-5 space-y-4">
+              <h3 className="text-lg font-semibold text-white mb-4">🎯 Ключевые метрики</h3>
+              
+              <div className="p-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                <div className="text-purple-400 text-sm">Конверсия</div>
+                <div className="text-white text-2xl font-bold">{stats?.breakdown?.conversionRate || 0}%</div>
+                <div className="text-slate-400 text-xs">дел с оплатой / всего дел</div>
+              </div>
+              
+              <div className="p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                <div className="text-emerald-400 text-sm">Средний чек</div>
+                <div className="text-white text-2xl font-bold">{stats?.breakdown?.averagePayment?.toLocaleString() || 0} ₽</div>
+              </div>
+              
+              <div className="p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                <div className="text-blue-400 text-sm">Всего пользователей</div>
+                <div className="text-white text-xl font-bold">{data.users.total}</div>
+              </div>
+              
+              <div className="p-3 bg-orange-500/10 rounded-lg border border-orange-500/20">
+                <div className="text-orange-400 text-sm">Документов в системе</div>
+                <div className="text-white text-xl font-bold">{data.documents.total}</div>
+              </div>
+            </div>
+          </div>
+          
+          {/* Status Breakdown */}
+          <div className="grid md:grid-cols-2 gap-6">
             <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
-              <h3 className="text-lg font-semibold text-white mb-4">📊 Статусы дел</h3>
+              <h3 className="text-lg font-semibold text-white mb-4">📊 Распределение статусов</h3>
               <div className="space-y-3">
-                {[
-                  { label: 'Активно', value: data.cases.active, color: 'bg-green-500', total: data.cases.total },
-                  { label: 'В ожидании', value: data.cases.pending, color: 'bg-yellow-500', total: data.cases.total },
-                  { label: 'Оплачено', value: data.cases.paid, color: 'bg-purple-500', total: data.cases.total },
-                ].map((item, i) => (
+                {stats?.breakdown?.statuses?.map((item: any, i: number) => {
+                  const total = data.cases.total || 1
+                  const pct = Math.round((item.count / total) * 100)
+                  const colors: Record<string, string> = {
+                    active: 'bg-green-500', pending: 'bg-yellow-500', paid: 'bg-purple-500',
+                    completed: 'bg-slate-500', generated: 'bg-blue-500', failed: 'bg-red-500'
+                  }
+                  return (
+                    <div key={i}>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-slate-300">{statusLabels[item.status] || item.status}</span>
+                        <span className="text-white font-medium">{item.count} ({pct}%)</span>
+                      </div>
+                      <div className="w-full bg-slate-700 rounded-full h-2">
+                        <div className={`${colors[item.status] || 'bg-slate-500'} h-2 rounded-full transition-all`} style={{ width: `${pct}%` }}></div>
+                      </div>
+                    </div>
+                  )
+                }) || [
+                  { label: 'Активно', value: data.cases.active, color: 'bg-green-500' },
+                  { label: 'В ожидании', value: data.cases.pending, color: 'bg-yellow-500' },
+                  { label: 'Оплачено', value: data.cases.paid, color: 'bg-purple-500' },
+                ].map((item: any, i: number) => (
                   <div key={i}>
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-slate-300">{item.label}</span>
-                      <span className="text-white font-medium">{item.value} ({item.total ? Math.round(item.value / item.total * 100) : 0}%)</span>
+                      <span className="text-white font-medium">{item.value} ({data.cases.total ? Math.round(item.value / data.cases.total * 100) : 0}%)</span>
                     </div>
                     <div className="w-full bg-slate-700 rounded-full h-2">
-                      <div className={`${item.color} h-2 rounded-full transition-all`} style={{ width: `${item.total ? (item.value / item.total * 100) : 0}%` }}></div>
+                      <div className={`${item.color} h-2 rounded-full transition-all`} style={{ width: `${data.cases.total ? (item.value / data.cases.total * 100) : 0}%` }}></div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Payment Stats */}
+            {/* Top Cases by Documents */}
             <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
-              <h3 className="text-lg font-semibold text-white mb-4">💰 Финансы</h3>
-              <div className="space-y-4">
-                <div className="p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
-                  <div className="text-emerald-400 text-sm">Оплачено</div>
-                  <div className="text-white text-2xl font-bold">{data.payments.paidAmount.toLocaleString()} {data.payments.currency}</div>
-                </div>
-                <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
-                  <div className="text-yellow-400 text-sm">В ожидании</div>
-                  <div className="text-white text-xl font-bold">{data.payments.pendingAmount.toLocaleString()} {data.payments.currency}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* System Health */}
-            <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
-              <h3 className="text-lg font-semibold text-white mb-4">🏥 Система</h3>
+              <h3 className="text-lg font-semibold text-white mb-4">🏆 Топ дел по документам</h3>
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-slate-900/50 rounded-lg">
-                  <span className="text-slate-300">API статус</span>
-                  <span className="flex items-center gap-1 text-emerald-400">
-                    <span className="w-2 h-2 bg-emerald-400 rounded-full"></span>
-                    Онлайн
-                  </span>
-                </div>
-                <div className="flex items-center justify-between p-3 bg-slate-900/50 rounded-lg">
-                  <span className="text-slate-300">AI генерация</span>
-                  <span className="flex items-center gap-1 text-emerald-400">
-                    <span className="w-2 h-2 bg-emerald-400 rounded-full"></span>
-                    Работает
-                  </span>
-                </div>
-                <div className="flex items-center justify-between p-3 bg-slate-900/50 rounded-lg">
-                  <span className="text-slate-300">Сервис оплаты</span>
-                  <span className="flex items-center gap-1 text-emerald-400">
-                    <span className="w-2 h-2 bg-emerald-400 rounded-full"></span>
-                    ITPAY
-                  </span>
-                </div>
-                <div className="flex items-center justify-between p-3 bg-slate-900/50 rounded-lg">
-                  <span className="text-slate-300">Версия</span>
-                  <span className="text-slate-400">v1.0.0</span>
-                </div>
+                {stats?.topCases?.slice(0, 8).map((c: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between p-3 bg-slate-900/50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <span className="text-slate-500 text-sm font-mono w-5">{i + 1}</span>
+                      <span className="text-white text-sm truncate max-w-[200px]">{c.title}</span>
+                    </div>
+                    <span className="text-purple-400 text-sm font-medium">{c.docCount} док.</span>
+                  </div>
+                )) || <div className="text-slate-500 text-center py-4">Нет данных</div>}
               </div>
             </div>
           </div>
