@@ -6,6 +6,7 @@ export default defineConfig({
   base: "/app/",
   server: {
     port: 5174,
+    allowedHosts: true,
     proxy: {
       "/api": {
         target: "https://hearts-exactly-cached-infrared.trycloudflare.com",
