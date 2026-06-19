@@ -982,6 +982,7 @@ app.post('/api/cases/:id/analyze', aiLimiter, async (req, res) => {
     
     // Fallback: прямой вызов OpenAI
     if (!usedMicroservice) {
+      const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
       const prompt = `
 Проанализируй юридическую ситуацию:
 
@@ -1229,7 +1230,8 @@ app.post('/api/cases/:id/generate', aiLimiter, async (req, res) => {
       }
     }
     
-    const prompt = `ЗАДАЧА: Подготовь юридический документ типа "${documentType}"
+    const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+      const prompt = `ЗАДАЧА: Подготовь юридический документ типа "${documentType}"
 
 ДЕЛО: ${c.title}
 ОПИСАНИЕ: ${c.description || 'Не указано'}
@@ -1257,7 +1259,7 @@ BODY:
     const completion = await openai.chat.completions.create({
       model: 'kimi-k2.5',
       messages: [
-        { role: 'system', content: 'Ты юрист с 20-летним стажем. Составляешь юридические документы любого типа: судебные, договорные, претензии. Определяешь категорию документа самостоятельно и применяешь правильную структуру. ИСПОЛЬЗУЙ ТОЛЬКО предоставленные данные клиента. НЕ выдумывай имена, суммы, даты, адреса, реквизиты, номера договоров, паспортные данные. Если данных недостаточно — укажи [УТОЧНИТЬ]. Пиши ТОЛЬКО по делу, без воды и общих фраз. Текст должен быть ЧИСТЫМ — без markdown-разметки (*, **, #, ` и т.д.). Максимум 35000 знаков.' },
+        { role: 'system', content: 'Ты юрист с 20-летним стажем. Составляешь юридические документы любого типа: судебные, договорные, претензии. Определяешь категорию документа самостоятельно и применяешь правильную структуру согласно законодательству РФ (2026 год). ИСПОЛЬЗУЙ ТОЛЬКО предоставленные данные клиента. НЕ выдумывай имена, суммы, даты, адреса, реквизиты, номера договоров, паспортные данные. Если данных недостаточно — укажи [УТОЧНИТЬ]. Пиши ТОЛЬКО по делу, без воды и общих фраз. Текст должен быть ЧИСТЫМ — без markdown-разметки (*, **, #, ` и т.д.). Абзацы отделяй пустой строкой. НЕ используй списки с маркерами — пиши связным текстом. Максимум 35000 знаков. Соблюдай стандарты оформления документов для судов РФ: шрифт Times New Roman 14pt, межстрочный интервал 1.5, отступ первой строки 1.25 см, поля: левое 3 см, правое 1.5 см, верхнее и нижнее 2 см.' },
         { role: 'user', content: prompt }
       ],
       temperature: 1,
@@ -1390,6 +1392,7 @@ app.post('/api/cases/:id/generate-document', aiLimiter, async (req, res) => {
 
     // 2. Fallback: прямой вызов OpenAI
     if (!usedMicroservice) {
+      const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
       const prompt = `
 Подготовь юридический документ: ${documentType}
 
@@ -1405,7 +1408,7 @@ ${(c.analysis || '').substring(0, 4000)}
 
 ` : ''}${documentsText ? 'Контекст из документов:' + documentsText : ''}
 
-Сегодня 18 июня 2026 года. Составь юридический документ: ${documentType}
+Сегодня ${new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}. Составь юридический документ: ${documentType}
 
 ПРАВИЛА СОСТАВЛЕНИЯ:
 
@@ -1432,7 +1435,7 @@ BODY:
       const completion = await openai.chat.completions.create({
         model: 'kimi-k2.5',
         messages: [
-          { role: 'system', content: 'Ты юрист с 20-летним стажем. Составляешь юридические документы любого типа: судебные, договорные, претензии. Определяешь категорию документа самостоятельно и применяешь правильную структуру. ИСПОЛЬЗУЙ ТОЛЬКО предоставленные данные клиента. НЕ выдумывай имена, суммы, даты, адреса, реквизиты, номера договоров, паспортные данные. Если данных недостаточно — укажи [УТОЧНИТЬ]. Пиши ТОЛЬКО по делу, без воды и общих фраз. Текст должен быть ЧИСТЫМ — без markdown-разметки (*, **, #, ` и т.д.). Максимум 35000 знаков.' },
+          { role: 'system', content: 'Ты юрист с 20-летним стажем. Составляешь юридические документы любого типа: судебные, договорные, претензии. Определяешь категорию документа самостоятельно и применяешь правильную структуру согласно законодательству РФ (2026 год). ИСПОЛЬЗУЙ ТОЛЬКО предоставленные данные клиента. НЕ выдумывай имена, суммы, даты, адреса, реквизиты, номера договоров, паспортные данные. Если данных недостаточно — укажи [УТОЧНИТЬ]. Пиши ТОЛЬКО по делу, без воды и общих фраз. Текст должен быть ЧИСТЫМ — без markdown-разметки (*, **, #, ` и т.д.). Абзацы отделяй пустой строкой. НЕ используй списки с маркерами — пиши связным текстом. Максимум 35000 знаков. Соблюдай стандарты оформления документов для судов РФ: шрифт Times New Roman 14pt, межстрочный интервал 1.5, отступ первой строки 1.25 см, поля: левое 3 см, правое 1.5 см, верхнее и нижнее 2 см.' },
           { role: 'user', content: prompt }
         ],
         temperature: 1,
@@ -1556,7 +1559,8 @@ app.post('/api/documents/:id/extract', async (req, res) => {
       }
     }
 
-    const prompt = `
+    const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+      const prompt = `
 Проанализируй документ и извлеки ключевые юридические факты:
 
 Название документа: ${doc.name}
@@ -2078,6 +2082,116 @@ app.post('/api/admin/summarize-all', async (req, res) => {
   } catch (err) {
     console.error('[ADMIN] Summarize-all error:', err)
     res.status(500).json({ error: 'Failed to summarize documents' })
+  }
+})
+
+// ===== PAYMENTS =====
+// Создание платежа для документа
+app.post('/api/documents/:id/pay', async (req, res) => {
+  try {
+    const documentId = req.params.id
+    const { amount = 499 } = req.body // По умолчанию 499 руб.
+    
+    // Проверяем что документ существует
+    const docData = await db.select().from(documents).where(eq(documents.id, documentId))
+    if (!docData.length) {
+      return res.status(404).json({ error: 'Document not found' })
+    }
+    
+    const paymentId = uuidv4()
+    const now = new Date()
+    
+    // Создаём запись о платеже
+    await db.insert(payments).values({
+      id: paymentId,
+      paymentId: `pay_${Date.now()}`,
+      documentId: documentId,
+      amount: amount,
+      status: 'pending',
+      paymentMethod: 'qr_code',
+      paymentData: JSON.stringify({
+        qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upay:${amount}`,
+        expiresAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString() // 30 минут
+      }),
+      createdAt: now
+    })
+    
+    res.json({
+      success: true,
+      paymentId,
+      amount,
+      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upay:${amount}`,
+      status: 'pending',
+      expiresAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString()
+    })
+  } catch (err: any) {
+    console.error('Payment creation error:', err)
+    res.status(500).json({ error: 'Failed to create payment', details: err.message })
+  }
+})
+
+// Проверка статуса платежа
+app.get('/api/payments/:id/status', async (req, res) => {
+  try {
+    const paymentId = req.params.id
+    
+    const paymentData = await db.select().from(payments).where(eq(payments.id, paymentId))
+    if (!paymentData.length) {
+      return res.status(404).json({ error: 'Payment not found' })
+    }
+    
+    const payment = paymentData[0]
+    const paymentDataParsed = payment.paymentData ? JSON.parse(payment.paymentData as string) : {}
+    
+    res.json({
+      id: payment.id,
+      status: payment.status,
+      amount: payment.amount,
+      documentId: payment.documentId,
+      createdAt: payment.createdAt,
+      ...paymentDataParsed
+    })
+  } catch (err: any) {
+    console.error('Payment status error:', err)
+    res.status(500).json({ error: 'Failed to get payment status', details: err.message })
+  }
+})
+
+// Подтверждение платежа (вебхук или ручное)
+app.post('/api/payments/:id/confirm', async (req, res) => {
+  try {
+    const paymentId = req.params.id
+    
+    const paymentData = await db.select().from(payments).where(eq(payments.id, paymentId))
+    if (!paymentData.length) {
+      return res.status(404).json({ error: 'Payment not found' })
+    }
+    
+    // Обновляем статус на completed
+    await db.update(payments)
+      .set({ status: 'completed', updatedAt: new Date() })
+      .where(eq(payments.id, paymentId))
+    
+    // Если платеж привязан к документу — отмечаем документ как оплаченный
+    const payment = paymentData[0]
+    if (payment.documentId) {
+      await db.update(documents)
+        .set({ 
+          status: 'paid',
+          updatedAt: new Date()
+        })
+        .where(eq(documents.id, payment.documentId))
+    }
+    
+    res.json({
+      success: true,
+      paymentId,
+      status: 'completed',
+      message: 'Payment confirmed. Document is now available for download.'
+    })
+  } catch (err: any) {
+    console.error('Payment confirm error:', err)
+    res.status(500).json({ error: 'Failed to confirm payment', details: err.message })
   }
 })
 
