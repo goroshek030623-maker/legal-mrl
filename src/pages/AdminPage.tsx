@@ -419,6 +419,7 @@ export default function AdminPage() {
                 <div className="text-orange-400 text-sm">Документов в системе</div>
                 <div className="text-white text-xl font-bold">{data.documents.total}</div>
               </div>
+              
               {/* Cleanup Button */}
               <div className="p-3 bg-red-500/10 rounded-lg border border-red-500/20">
                 <div className="text-red-400 text-sm">⚠️ Очистка висящих дел</div>

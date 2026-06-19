@@ -1883,6 +1883,110 @@ app.post('/api/admin/cleanup-pending-cases', async (req, res) => {
     res.status(500).json({ error: 'Failed to cleanup cases', details: err.message })
   }
 })
+
+// Проверка статуса платежа
+app.get('/api/payments/:id/status', async (req, res) => {
+  try {
+    const paymentId = req.params.id
+    
+    const paymentData = await db.select().from(payments).where(eq(payments.id, paymentId))
+    if (!paymentData.length) {
+      return res.status(404).json({ error: 'Payment not found' })
+    }
+    
+    const payment = paymentData[0]
+    const paymentDataParsed = payment.paymentData ? JSON.parse(payment.paymentData as string) : {}
+    
+    res.json({
+      id: payment.id,
+      status: payment.status,
+      amount: payment.amount,
+      documentId: payment.documentId,
+      createdAt: payment.createdAt,
+      ...paymentDataParsed
+    })
+  } catch (err: any) {
+    console.error('Payment status error:', err)
+    res.status(500).json({ error: 'Failed to get payment status', details: err.message })
+  }
+})
+
+// Подтверждение платежа (вебхук или ручное)
+app.post('/api/payments/:id/confirm', async (req, res) => {
+  try {
+    const paymentId = req.params.id
+    
+    const paymentData = await db.select().from(payments).where(eq(payments.id, paymentId))
+    if (!paymentData.length) {
+      return res.status(404).json({ error: 'Payment not found' })
+    }
+    
+    // Обновляем статус на completed
+    await db.update(payments)
+      .set({ status: 'completed', updatedAt: new Date() })
+      .where(eq(payments.id, paymentId))
+    
+    // Если платеж привязан к документу — отмечаем документ как оплаченный
+    const payment = paymentData[0]
+    if (payment.documentId) {
+      await db.update(documents)
+        .set({ 
+          status: 'paid',
+          updatedAt: new Date()
+        })
+        .where(eq(documents.id, payment.documentId))
+    }
+    
+    res.json({
+      success: true,
+      paymentId,
+      status: 'completed',
+      message: 'Payment confirmed. Document is now available for download.'
+    })
+  } catch (err: any) {
+    console.error('Payment confirm error:', err)
+    res.status(500).json({ error: 'Failed to confirm payment', details: err.message })
+  }
+})
+
+
+// ===== ADMIN: CLEANUP PENDING CASES =====
+app.post('/api/admin/cleanup-pending-cases', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '')
+    if (!token) return res.status(401).json({ error: 'Unauthorized' })
+    const decoded = jwt.verify(token, JWT_SECRET) as any
+    if (!decoded.isAdmin) return res.status(403).json({ error: 'Admin access required' })
+
+    const hours = parseInt(req.query.hours as string) || 24
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000)
+
+    const oldCases = await db.select()
+      .from(cases)
+      .where(sql`status IN ('pending', 'waiting', 'draft') AND updated_at < ${cutoff}`)
+      .orderBy(cases.updatedAt)
+
+    const closedIds: string[] = []
+    for (const c of oldCases) {
+      await db.update(cases)
+        .set({ status: 'closed', updatedAt: new Date() })
+        .where(eq(cases.id, c.id))
+      closedIds.push(c.id)
+    }
+
+    res.json({
+      success: true,
+      closed: closedIds.length,
+      hours,
+      cutoff: cutoff.toISOString(),
+      closedIds
+    })
+  } catch (err: any) {
+    console.error('Cleanup pending cases error:', err)
+    res.status(500).json({ error: 'Failed to cleanup cases', details: err.message })
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`DokIQ API running on port ${PORT}`)
 })
