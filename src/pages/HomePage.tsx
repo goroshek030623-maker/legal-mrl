@@ -21,26 +21,26 @@ export default function HomePage() {
           <p className="text-lg text-slate-300 max-w-2xl mx-auto">
             Загрузите материалы дела, получите Экспертный анализ и рекомендации по составлению документов
           </p>
-          <div className="mt-6 inline-block bg-yellow-500/20 text-yellow-400 px-6 py-3 rounded-lg font-bold text-xl border border-yellow-500/30">
+          <div className="mt-6 inline-block bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-900 px-8 py-3 rounded-xl font-bold text-xl shadow-lg shadow-yellow-500/40 border-2 border-yellow-300">
             Любой документ — 499 ₽
           </div>
           <div className="mt-8 flex justify-center gap-4 flex-wrap">
             <Link
               to="/cases/new"
-              className="bg-yellow-500 text-slate-900 px-6 py-3 rounded-lg font-bold hover:bg-yellow-400 transition-colors"
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-900 px-8 py-4 rounded-xl font-bold text-lg shadow-lg shadow-yellow-500/30 hover:shadow-yellow-500/50 hover:scale-105 active:scale-95 transition-all duration-200"
             >
               ✨ Создать дело
             </Link>
             <Link
               to="/cases"
-              className="bg-slate-700 text-white px-6 py-3 rounded-lg font-bold hover:bg-slate-600 transition-colors"
+              className="inline-flex items-center gap-2 bg-slate-700 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-slate-600 hover:scale-105 active:scale-95 transition-all duration-200 border border-slate-600"
             >
               📋 Мои дела
             </Link>
             {isAdmin && (
               <Link
                 to="/admin"
-                className="bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-500 transition-colors"
+                className="inline-flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-500 text-white px-8 py-4 rounded-xl font-bold text-lg shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 hover:scale-105 active:scale-95 transition-all duration-200"
               >
                 👑 Админка
               </Link>
