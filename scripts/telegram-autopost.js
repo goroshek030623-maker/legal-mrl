@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Enhanced auto-posting for Telegram — multiple formats, images, polls, fresh content
 
-const TOKEN = '7672594324:AAGSycOg8-iXTgoV-euU_DV8lDnHW0ekPnM';
+const TOKEN = '7672594324:AAERXd3Jsd5qGKeeV8IDSJkQpL1iqY1UPuQ';
 const CHAT_ID = '-1003719966943';
 
 // ─── Content Generators ──────────────────────────────────────

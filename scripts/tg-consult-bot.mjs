@@ -1,6 +1,6 @@
 import fs from "fs";
 
-const TOKEN = "7672594324:AAGSycOg8-iXTgoV-euU_DV8lDnHW0ekPnM";
+const TOKEN = "7672594324:AAERXd3Jsd5qGKeeV8IDSJkQpL1iqY1UPuQ";
 const API_URL = `https://api.telegram.org/bot${TOKEN}`;
 const REF_FILE = "/var/www/legal-mrl/data/referrals.json";
 const USER_STATE_FILE = "/var/www/legal-mrl/data/user_states.json";
