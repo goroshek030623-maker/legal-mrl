@@ -15,6 +15,7 @@ import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import generateLegalDocument from "./generate-docx"
 import rateLimit from 'express-rate-limit'
+import nodemailer from 'nodemailer'
 const execAsync = promisify(exec)
 
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-key-change-in-production'
@@ -1765,6 +1766,47 @@ async function handleMe(req: any, res: any) {
 app.get('/api/me', authMiddleware, handleMe)
 app.get('/api/auth/me', authMiddleware, handleMe)
 
+// ===== FEEDBACK =====
+app.post('/api/feedback', generalLimiter, async (req, res) => {
+  try {
+    const { name, email, message } = req.body
+    if (!name || !email || !message) {
+      return res.status(400).json({ error: 'Name, email and message are required' })
+    }
+    const timestamp = new Date().toISOString()
+    console.log(`[FEEDBACK] ${timestamp} | Name: ${name} | Email: ${email} | Message: ${message.substring(0, 200)}`)
+
+    // Send email if SMTP is configured
+    const smtpHost = process.env.SMTP_HOST || 'smtp.mail.ru'
+    const smtpPort = parseInt(process.env.SMTP_PORT || '465')
+    const smtpUser = process.env.SMTP_USER || 'dokiq@list.ru'
+    const smtpPass = process.env.SMTP_PASS
+
+    if (smtpPass) {
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        auth: { user: smtpUser, pass: smtpPass }
+      })
+      await transporter.sendMail({
+        from: `"DokIQ Feedback" <${smtpUser}>`,
+        to: 'dokiq@list.ru',
+        subject: `Новое сообщение от ${name}`,
+        text: `Имя: ${name}\nEmail: ${email}\n\nСообщение:\n${message}`,
+        html: `<h2>Новое сообщение обратной связи</h2><p><b>Имя:</b> ${name}</p><p><b>Email:</b> ${email}</p><p><b>Сообщение:</b></p><pre style="white-space:pre-wrap">${message}</pre>`
+      })
+      console.log('[FEEDBACK] Email sent to dokiq@list.ru')
+    } else {
+      console.log('[FEEDBACK] SMTP not configured — email not sent. Add SMTP_PASS to .env')
+    }
+
+    res.json({ success: true, message: 'Feedback received' })
+  } catch (err: any) {
+    console.error('Feedback error:', err)
+    res.status(500).json({ error: 'Failed to process feedback' })
+  }
+})
 
 // AI Logs — admin endpoints
 app.get("/api/admin/ai-logs", async (req, res) => {
@@ -1987,7 +2029,7 @@ app.post('/api/admin/cleanup-pending-cases', async (req, res) => {
   }
 })
 
-app.listen(PORT, () => {
+app.listen(PORT, "127.0.0.1", () => {
   console.log(`DokIQ API running on port ${PORT}`)
 })
 
