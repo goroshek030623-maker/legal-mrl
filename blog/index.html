@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Блог DokIQ — юридические статьи и гайды</title>
+  <meta name="description" content="Полезные статьи о юридических документах, исках, договорах и претензиях. Пошаговые инструкции от экспертов DokIQ." />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://dokiq.ru/blog/" />
+  
+  <meta property="og:title" content="Блог DokIQ — юридические статьи и гайды" />
+  <meta property="og:description" content="Полезные материалы по юридическим документам." />
+  <meta property="og:url" content="https://dokiq.ru/blog/" />
+  <meta property="og:type" content="website" />
+  
+  <link rel="icon" type="image/png" href="/images/logo.png" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0a1628;
+      color: #e2e8f0;
+      line-height: 1.7;
+      min-height: 100vh;
+    }
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem; }
+    header { text-align: center; padding: 3rem 0; border-bottom: 1px solid rgba(251,191,36,0.2); margin-bottom: 2rem; }
+    .logo { display: inline-flex; align-items: center; gap: 0.75rem; text-decoration: none; margin-bottom: 1.5rem; }
+    .logo img { width: 50px; height: 50px; }
+    .logo span { font-size: 1.75rem; font-weight: 700; color: #fbbf24; }
+    h1 { font-size: 2.25rem; color: #fff; margin-bottom: 0.5rem; }
+    .subtitle { color: rgba(226,232,240,0.6); font-size: 1.1rem; }
+    
+    .articles-grid {
+      display: grid;
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+    .article-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(251,191,36,0.15);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      transition: all 0.3s;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+    .article-card:hover {
+      border-color: rgba(251,191,36,0.4);
+      transform: translateY(-2px);
+      background: rgba(255,255,255,0.05);
+    }
+    .article-tag {
+      display: inline-block;
+      background: rgba(251,191,36,0.15);
+      color: #fbbf24;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+    .article-card h2 {
+      color: #fff;
+      font-size: 1.25rem;
+      margin-bottom: 0.5rem;
+    }
+    .article-card p {
+      color: rgba(226,232,240,0.7);
+      font-size: 0.95rem;
+      margin-bottom: 0.75rem;
+    }
+    .article-meta {
+      color: rgba(226,232,240,0.4);
+      font-size: 0.8rem;
+    }
+    
+    footer { text-align: center; padding: 2rem; margin-top: 3rem; border-top: 1px solid rgba(251,191,36,0.1); color: rgba(226,232,240,0.5); font-size: 0.875rem; }
+    footer a { color: #fbbf24; text-decoration: none; }
+    .breadcrumb { font-size: 0.875rem; color: rgba(226,232,240,0.5); margin-bottom: 1.5rem; }
+    .breadcrumb a { color: #fbbf24; text-decoration: none; }
+    
+    @media (max-width: 640px) { h1 { font-size: 1.75rem; } .container { padding: 1.5rem; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a href="/" class="logo">
+        <img src="/images/logo.png" alt="DokIQ" />
+        <span>DokIQ</span>
+      </a>
+      <nav class="breadcrumb"><a href="/">Главная</a> / Блог</nav>
+      <h1>Блог</h1>
+      <p class="subtitle">Полезные материалы по юридическим документам и процедурам</p>
+    </header>
+
+    <div class="articles-grid">
+      <a href="/blog/isk-o-vzyskanii-dolga/" class="article-card">
+        <span class="article-tag">Иски</span>
+        <h2>Как составить иск о взыскании долга: пошаговая инструкция</h2>
+        <p>Полное руководство по подготовке искового заявления о взыскании задолженности. Какие документы нужны, как рассчитать госпошлину, в какой суд обращаться.</p>
+        <span class="article-meta">20 июня 2026 · 8 минут чтения</span>
+      </a>
+      
+      <a href="/blog/dogovor-kupli-prodazhi-kvartiry/" class="article-card">
+        <span class="article-tag">Договоры</span>
+        <h2>Договор купли-продажи квартиры: что проверить перед подписанием</h2>
+        <p>Ключевые пункты договора, на которые нужно обратить внимание. Как защитить себя от рисков при покупке недвижимости.</p>
+        <span class="article-meta">19 июня 2026 · 6 минут чтения</span>
+      </a>
+      
+      <a href="/blog/pretenziya-zastroyshchiku/" class="article-card">
+        <span class="article-tag">Претензии</span>
+        <h2>Претензия застройщику: образец и порядок подачи</h2>
+        <p>Как правильно составить претензию застройщику по ФЗ-214. Просрочка сдачи, некачественный ремонт, устранение дефектов.</p>
+        <span class="article-meta">18 июня 2026 · 7 минут чтения</span>
+      </a>
+    </div>
+  </div>
+
+  <footer>
+    <p>© 2026 DokIQ — <a href="/">Главная</a> | <a href="/isk/">Иски</a> | <a href="/dogovor/">Договоры</a> | <a href="/pretenziya/">Претензии</a> | <a href="https://t.me/Dok_IQ" target="_blank">Telegram</a></p>
+  </footer>
+
+  <script type="text/javascript">
+   (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})(window,document,'script','https://mc.yandex.ru/metrika/tag.js?id=109713317','ym');ym(109713317,'init',{ssr:true,webvisor:true,clickmap:true,accurateTrackBounce:true,trackLinks:true});
+  </script>
+</body>
+</html>

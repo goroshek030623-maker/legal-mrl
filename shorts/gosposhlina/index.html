@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>YouTube Shorts — Калькулятор госпошлины</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      background: #000; 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      justify-content: center; 
+      min-height: 100vh; 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow: hidden;
+    }
+    .phone-frame {
+      width: 360px;
+      height: 640px;
+      background: #0a1628;
+      border: 4px solid #fbbf24;
+      border-radius: 20px;
+      overflow: hidden;
+      position: relative;
+    }
+    .slide {
+      width: 100%;
+      height: 100%;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      text-align: center;
+      position: relative;
+    }
+    .slide.active { display: flex; }
+    
+    /* Слайд 1: Хук */
+    .slide-1 { background: linear-gradient(180deg, #0a1628 0%, #1a2744 100%); }
+    .slide-1 h1 { font-size: 2.5rem; color: #fbbf24; font-weight: 900; line-height: 1.2; text-shadow: 0 0 40px rgba(251,191,36,0.3); }
+    .slide-1 p { font-size: 1.1rem; color: #fff; margin-top: 1rem; opacity: 0.9; }
+    .slide-1 .emoji { font-size: 4rem; margin-bottom: 1rem; }
+    
+    /* Слайд 2: Проблема */
+    .slide-2 { background: #0a1628; }
+    .slide-2 .price-tag { 
+      font-size: 3.5rem; color: #ef4444; font-weight: 900; 
+      text-decoration: line-through; text-decoration-color: #ef4444; text-decoration-thickness: 4px;
+    }
+    .slide-2 p { font-size: 1.1rem; color: rgba(255,255,255,0.7); margin-top: 1rem; }
+    .slide-2 .sad { font-size: 3rem; margin-bottom: 1rem; }
+    
+    /* Слайд 3: Решение */
+    .slide-3 { background: linear-gradient(135deg, #0a1628 0%, #0f2a1e 100%); border: 3px solid #22c55e; }
+    .slide-3 .logo { font-size: 2rem; font-weight: 800; color: #fbbf24; margin-bottom: 0.5rem; }
+    .slide-3 h2 { font-size: 1.5rem; color: #22c55e; font-weight: 700; }
+    .slide-3 p { font-size: 1rem; color: rgba(255,255,255,0.8); margin-top: 1rem; }
+    .slide-3 .check { font-size: 3rem; color: #22c55e; margin-bottom: 1rem; }
+    
+    /* Слайд 4: Демо */
+    .slide-4 { background: #0a1628; }
+    .slide-4 .calc-box { 
+      background: rgba(255,255,255,0.05); 
+      border: 2px solid rgba(251,191,36,0.3); 
+      border-radius: 1rem; 
+      padding: 1.5rem; 
+      width: 100%; 
+      margin: 1rem 0;
+    }
+    .slide-4 .input-line { 
+      font-size: 1.1rem; color: rgba(255,255,255,0.6); 
+      border-bottom: 1px solid rgba(251,191,36,0.3); 
+      padding: 0.5rem 0; 
+      text-align: left;
+    }
+    .slide-4 .input-line span { float: right; color: #fff; font-weight: 600; }
+    .slide-4 .result { 
+      font-size: 2rem; color: #fbbf24; font-weight: 800; 
+      margin-top: 1rem; padding-top: 1rem; 
+      border-top: 2px solid rgba(251,191,36,0.3);
+    }
+    .slide-4 .result small { font-size: 0.9rem; color: rgba(255,255,255,0.6); display: block; font-weight: 400; }
+    
+    /* Слайд 5: CTA */
+    .slide-5 { background: linear-gradient(180deg, #0a1628 0%, #1a1030 100%); }
+    .slide-5 .arrow { font-size: 3rem; color: #fbbf24; margin-bottom: 0.5rem; animation: bounce 1s infinite; }
+    .slide-5 h2 { font-size: 1.5rem; color: #fff; font-weight: 700; }
+    .slide-5 .btn { 
+      background: linear-gradient(135deg, #fbbf24, #d97706); 
+      color: #0a1628; 
+      padding: 1rem 2rem; 
+      border-radius: 9999px; 
+      font-size: 1.1rem; 
+      font-weight: 700; 
+      margin-top: 1.5rem;
+      text-decoration: none;
+    }
+    .slide-5 p { font-size: 0.9rem; color: rgba(255,255,255,0.5); margin-top: 1rem; }
+    
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+    
+    .nav { 
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); 
+      display: flex; gap: 10px; z-index: 100;
+    }
+    .nav button { 
+      width: 50px; height: 50px; border-radius: 50%; border: 2px solid #fbbf24; 
+      background: rgba(10,22,40,0.9); color: #fbbf24; font-size: 1.2rem; cursor: pointer;
+    }
+    .nav button:disabled { opacity: 0.3; cursor: not-allowed; }
+    .slide-counter { 
+      position: fixed; top: 20px; right: 20px; 
+      background: rgba(0,0,0,0.7); color: #fbbf24; 
+      padding: 0.5rem 1rem; border-radius: 9999px; font-size: 0.9rem; font-weight: 600;
+    }
+    
+    .sound-hint { 
+      position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); 
+      background: rgba(239,68,68,0.9); color: #fff; 
+      padding: 0.5rem 1rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="phone-frame">
+    <!-- Слайд 1: Хук -->
+    <div class="slide slide-1 active">
+      <div class="emoji">⚖️</div>
+      <h1>Сколько стоит<br>подача в суд?</h1>
+      <p>99% не знают точную сумму</p>
+    </div>
+    
+    <!-- Слайд 2: Проблема -->
+    <div class="slide slide-2">
+      <div class="sad">😤</div>
+      <div class="price-tag">30 000 ₽</div>
+      <p>так взял юрист за<br>«консультацию»</p>
+      <p style="margin-top:0.5rem; font-size:0.85rem; opacity:0.5;">А госпошлина — отдельно!</p>
+    </div>
+    
+    <!-- Слайд 3: Решение -->
+    <div class="slide slide-3">
+      <div class="check">✅</div>
+      <div class="logo">DokIQ</div>
+      <h2>Калькулятор<br>госпошлины</h2>
+      <p>Бесплатно. За 10 секунд.<br>По НК РФ ст. 333.19</p>
+    </div>
+    
+    <!-- Слайд 4: Демо -->
+    <div class="slide slide-4">
+      <p style="color: #fbbf24; font-weight: 700; margin-bottom: 1rem;">📊 Пример расчёта:</p>
+      <div class="calc-box">
+        <div class="input-line">Сумма иска <span>150 000 ₽</span></div>
+        <div class="input-line">Вид суда <span>Мировой</span></div>
+        <div class="result">
+          <small>Госпошлина составит:</small>
+          4 400 ₽
+        </div>
+      </div>
+      <p style="font-size: 0.85rem; color: rgba(255,255,255,0.5); margin-top: 0.5rem;">Интерфейс dokiq.ru/calculator/</p>
+    </div>
+    
+    <!-- Слайд 5: CTA -->
+    <div class="slide slide-5">
+      <div class="arrow">👇</div>
+      <h2>Рассчитайте<br>бесплатно</h2>
+      <div class="btn">dokiq.ru/calculator</div>
+      <p>И сразу составьте иск</p>
+    </div>
+  </div>
+  
+  <div class="slide-counter"><span id="current">1</span> / 5</div>
+  <div class="sound-hint">🔊 Включите звук для сценария!</div>
+  
+  <div class="nav">
+    <button onclick="prevSlide()" id="btnPrev">←</button>
+    <button onclick="nextSlide()" id="btnNext">→</button>
+  </div>
+
+  <script>
+    let current = 0;
+    const slides = document.querySelectorAll('.slide');
+    const total = slides.length;
+    
+    function update() {
+      slides.forEach((s, i) => s.classList.toggle('active', i === current));
+      document.getElementById('current').textContent = current + 1;
+      document.getElementById('btnPrev').disabled = current === 0;
+      document.getElementById('btnNext').disabled = current === total - 1;
+    }
+    function nextSlide() { if (current < total - 1) { current++; update(); } }
+    function prevSlide() { if (current > 0) { current--; update(); } }
+    
+    // Стрелки клавиатуры
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') nextSlide();
+      if (e.key === 'ArrowLeft') prevSlide();
+    });
+    
+    // Свайп на телефоне
+    let touchStartX = 0;
+    document.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX);
+    document.addEventListener('touchend', e => {
+      const diff = touchStartX - e.changedTouches[0].screenX;
+      if (Math.abs(diff) > 50) {
+        if (diff > 0) nextSlide(); else prevSlide();
+      }
+    });
+    
+    update();
+  </script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Бесплатный чек-лист: проверка квартиры перед покупкой | DokIQ</title>
+  <meta name="description" content="Скачайте бесплатный чек-лист проверки квартиры перед покупкой. 25 пунктов, которые сэкономят вам от 100 000 ₽." />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://dokiq.ru/checklist-kvartira/" />
+  <link rel="icon" type="image/png" href="/images/logo.png" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #0a1628; color: #e2e8f0; line-height: 1.6; min-height: 100vh; }
+    .container { max-width: 700px; margin: 0 auto; padding: 2rem; }
+    header { text-align: center; padding: 2rem 0 2rem; }
+    .logo { display: inline-flex; align-items: center; gap: 0.75rem; text-decoration: none; margin-bottom: 1.5rem; }
+    .logo img { width: 50px; height: 50px; }
+    .logo span { font-size: 1.75rem; font-weight: 800; color: #fbbf24; }
+    h1 { font-size: 1.75rem; color: #fff; margin-bottom: 1rem; line-height: 1.3; }
+    .lead-box { background: linear-gradient(135deg, rgba(251,191,36,0.1), rgba(217,119,6,0.05)); border: 1px solid rgba(251,191,36,0.3); border-radius: 1.25rem; padding: 2rem; margin: 1.5rem 0; }
+    .benefits { display: flex; flex-direction: column; gap: 0.75rem; margin: 1.5rem 0; }
+    .benefit { display: flex; align-items: center; gap: 0.75rem; }
+    .benefit::before { content: "✓"; color: #22c55e; font-weight: 700; font-size: 1.2rem; }
+    .email-form { margin-top: 1.5rem; }
+    .email-form input[type="email"] { width: 100%; padding: 1rem 1.25rem; border: 1px solid rgba(251,191,36,0.3); border-radius: 0.75rem; background: rgba(255,255,255,0.05); color: #fff; font-size: 1rem; margin-bottom: 1rem; outline: none; }
+    .email-form input[type="email"]::placeholder { color: rgba(226,232,240,0.4); }
+    .email-form input[type="email"]:focus { border-color: #fbbf24; }
+    .email-form button { width: 100%; padding: 1rem; background: linear-gradient(135deg, #fbbf24, #d97706); color: #0a1628; border: none; border-radius: 0.75rem; font-size: 1.1rem; font-weight: 700; cursor: pointer; transition: transform 0.3s; }
+    .email-form button:hover { transform: scale(1.02); }
+    .privacy { text-align: center; color: rgba(226,232,240,0.4); font-size: 0.75rem; margin-top: 0.75rem; }
+    .social-proof { text-align: center; margin-top: 1.5rem; padding: 1rem; background: rgba(255,255,255,0.02); border-radius: 0.75rem; }
+    .social-proof span { color: #fbbf24; font-weight: 700; }
+    h2 { font-size: 1.25rem; color: #fbbf24; margin: 2rem 0 1rem; }
+    p { margin-bottom: 1rem; color: rgba(226,232,240,0.85); }
+    ul { margin: 1rem 0 1.5rem 1.5rem; }
+    li { margin-bottom: 0.5rem; color: rgba(226,232,240,0.85); }
+    footer { text-align: center; padding: 2rem; margin-top: 2rem; color: rgba(226,232,240,0.4); font-size: 0.85rem; }
+    footer a { color: #fbbf24; text-decoration: none; }
+    .countdown { text-align: center; color: #ef4444; font-size: 0.85rem; margin-top: 0.5rem; }
+    @media (max-width: 640px) { h1 { font-size: 1.4rem; } .container { padding: 1.5rem; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a href="/" class="logo">
+        <img src="/images/logo.png" alt="DokIQ" />
+        <span>DokIQ</span>
+      </a>
+      <h1>🎁 Бесплатный чек-лист:<br>25 пунктов проверки квартиры перед покупкой</h1>
+      <p style="color: rgba(226,232,240,0.6);">Сэкономьте от <strong style="color:#fbbf24">100 000 ₽</strong> на ошибках при покупке жилья</p>
+    </header>
+
+    <div class="lead-box">
+      <p style="text-align:center; font-size:1.1rem; margin-bottom:1.5rem;"><strong>Что вы получите:</strong></p>
+      <div class="benefits">
+        <div class="benefit">PDF-чек-лист на 25 пунктов</div>
+        <div class="benefit">Проверка документов и обременений</div>
+        <div class="benefit">Красные флаги мошенничества</div>
+        <div class="benefit">Как проверить застройщика</div>
+        <div class="benefit">Чек-лист для показа квартиры</div>
+      </div>
+
+      <form class="email-form" onsubmit="handleSubmit(event)">
+        <input type="email" id="email" placeholder="Ваш email" required>
+        <button type="submit">📩 Получить чек-лист бесплатно</button>
+      </form>
+      <p class="privacy">Никакого спама. Только полезные материалы. Отписаться в любой момент.</p>
+
+      <div class="social-proof">
+        Уже <span>2 847</span> человек получили чек-лист
+      </div>
+      <p class="countdown">⏰ Предложение действует бесплатно — без ограничений</p>
+    </div>
+
+    <h2>Почему этот чек-лист важен?</h2>
+    <p>Согласно данным Росреестра, каждая 5-я сделка с недвижимостью имеет скрытые риски: обременения, аресты, проблемы с документами. Средний ущерб от плохой проверки — <strong>от 100 000 до 2 000 000 ₽</strong>.</p>
+
+    <h2>Что внутри чек-листа?</h2>
+    <ul>
+      <li><strong>Документы:</strong> что проверить у продавца перед сделкой</li>
+      <li><strong>ЕГРН:</strong> как получить выписку и что в ней искать</li>
+      <li><strong>Обременения:</strong> ипотека, арест, запрет — как выявить</li>
+      <li><strong>Застройщик:</strong> проверка на банкротство и просрочки</li>
+      <li><strong>Осмотр:</strong> что проверить при показе квартиры</li>
+      <li><strong>Договор:</strong> 10 пунктов, которые обязательно должны быть</li>
+    </ul>
+
+    <div style="text-align:center; margin:2rem 0;">
+      <a href="/blog/dogovor-kupli-prodazhi-kvartiry/" style="color:#fbbf24; text-decoration:none; font-weight:600;">→ Читать статью: Договор купли-продажи квартиры</a>
+    </div>
+  </div>
+
+  <footer>
+    <p>© 2026 DokIQ — <a href="/">Главная</a> | <a href="/blog/">Блог</a> | <a href="/tarify/">Тарифы</a> | <a href="https://t.me/Dok_IQ" target="_blank">Telegram</a></p>
+  </footer>
+
+  <script>
+    function handleSubmit(e) {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      // Здесь можно добавить отправку на сервер / в Telegram / в Google Sheets
+      // Пока просто редирект на скачивание
+      window.location.href = '/downloads/checklist-kvartira.pdf';
+    }
+  </script>
+
+  <script type="text/javascript">
+   (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})(window,document,'script','https://mc.yandex.ru/metrika/tag.js?id=109713317','ym');ym(109713317,'init',{ssr:true,webvisor:true,clickmap:true,accurateTrackBounce:true,trackLinks:true});
+  </script>
+</body>
+</html>

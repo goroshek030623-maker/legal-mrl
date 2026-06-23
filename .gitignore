@@ -1,0 +1,18 @@
+# Secrets
+.env
+*.env
+.articles_db.json
+
+# Logs
+*.log
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp
+tmp/
+temp/

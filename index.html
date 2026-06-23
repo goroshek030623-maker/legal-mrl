@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DOKIQ — Юридические документы за 10 минут | Генератор исков и договоров</title>
+  <meta name="description" content="Составьте иск, договор или претензию онлайн за 10 минут. Автоматическая генерация юридических документов по актуальному законодательству РФ 2026. Без регистрации юриста." />
+  <meta name="keywords" content="составить иск, генератор исков, договор онлайн, претензия образец, юридические документы, исковое заявление, договор купли продажи" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://dokiq.ru/" />
+  
+  <!-- Open Graph -->
+  <meta property="og:title" content="DOKIQ — Юридические документы за 10 минут" />
+  <meta property="og:description" content="Иски, договоры, претензии — без очередей и консультаций. Автоматическая генерация по законодательству РФ." />
+  <meta property="og:image" content="https://dokiq.ru/images/og-image.png" />
+  <meta property="og:url" content="https://dokiq.ru" />
+  <meta property="og:type" content="website" />
+  
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="DOKIQ — Юридические документы за 10 минут" />
+  <meta name="twitter:description" content="Иски, договоры, претензии — без очередей и консультаций." />
+  <meta name="twitter:image" content="https://dokiq.ru/images/og-image.png" />
+  
+  <link rel="icon" type="image/png" href="/images/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Schema.org -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "DokIQ",
+    "url": "https://dokiq.ru",
+    "description": "Юридические документы за 10 минут",
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "https://dokiq.ru/app/?q={search_term_string}",
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "DokIQ",
+    "url": "https://dokiq.ru",
+    "logo": "https://dokiq.ru/images/logo.png",
+    "sameAs": [
+      "https://t.me/Dok_IQ"
+    ],
+    "contactPoint": {
+      "@type": "ContactPoint",
+      "contactType": "customer support",
+      "url": "https://t.me/Dok_IQ"
+    }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Как составить исковое заявление в суд онлайн?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "С помощью DokIQ вы можете составить исковое заявление за 10 минут. Загрузите документы по делу, ответьте на вопросы — система сгенерирует готовый документ, соответствующий требованиям судов РФ."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Сколько стоит составить договор онлайн?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Стоимость генерации документа в DokIQ зависит от типа. Первичный анализ дела бесплатный. Генерация полного документа — от 299 рублей."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Документы соответствуют законодательству РФ?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Да, все документы генерируются с ориентацией на актуальное законодательство Российской Федерации 2026 года, включая ГК РФ, ГПК РФ, КАС РФ и другие нормативные акты."
+        }
+      }
+    ]
+  }
+  </script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0a1628;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+    }
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 2rem;
+      animation: fadeInDown 0.8s ease-out;
+    }
+    .logo-container img {
+      width: 80px;
+      height: 80px;
+      object-fit: contain;
+      filter: drop-shadow(0 0 20px rgba(251, 191, 36, 0.5));
+    }
+    .brand-name {
+      font-size: 3rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #fbbf24, #d97706);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.02em;
+    }
+    .tagline {
+      font-size: 1.25rem;
+      color: rgba(255, 255, 255, 0.6);
+      max-width: 600px;
+      margin-bottom: 2rem;
+      line-height: 1.6;
+      animation: fadeInUp 0.8s ease-out 0.2s both;
+    }
+    .cta-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: linear-gradient(135deg, #fbbf24, #d97706);
+      color: #0a1628;
+      padding: 1rem 2rem;
+      border-radius: 9999px;
+      font-size: 1.125rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.3s ease;
+      box-shadow: 0 0 40px rgba(251, 191, 36, 0.3);
+      animation: fadeInUp 0.8s ease-out 0.4s both;
+    }
+    .cta-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 60px rgba(251, 191, 36, 0.5);
+    }
+    .telegram-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: linear-gradient(135deg, #0088cc, #00a8e6);
+      color: #fff;
+      padding: 0.75rem 1.5rem;
+      border-radius: 9999px;
+      font-size: 1rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.3s ease;
+      box-shadow: 0 0 30px rgba(0, 136, 204, 0.3);
+      animation: fadeInUp 0.8s ease-out 0.5s both;
+      margin-top: 1rem;
+    }
+    .telegram-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 40px rgba(0, 136, 204, 0.5);
+    }
+    .telegram-button svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+    .features {
+      display: flex;
+      gap: 2rem;
+      margin-top: 3rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      animation: fadeInUp 0.8s ease-out 0.6s both;
+    }
+    .feature {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(251, 191, 36, 0.2);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      min-width: 200px;
+      backdrop-filter: blur(10px);
+    }
+    .feature-icon {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+    }
+    .feature-title {
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+    .feature-desc {
+      font-size: 0.875rem;
+      color: rgba(255, 255, 255, 0.5);
+    }
+    .publications {
+      margin-top: 3rem;
+      width: 100%;
+      max-width: 800px;
+      animation: fadeInUp 0.8s ease-out 0.7s both;
+    }
+    .publications h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 1.5rem;
+      color: #fbbf24;
+    }
+    .pub-grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+    .pub-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(251, 191, 36, 0.15);
+      border-radius: 1rem;
+      padding: 1.25rem;
+      text-align: left;
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.3s ease;
+    }
+    .pub-card:hover {
+      border-color: rgba(251, 191, 36, 0.4);
+      transform: translateY(-3px);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .pub-tag {
+      display: inline-block;
+      background: rgba(251, 191, 36, 0.15);
+      color: #fbbf24;
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+    .pub-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: #fff;
+      line-height: 1.4;
+    }
+    .pub-card p {
+      font-size: 0.85rem;
+      color: rgba(255, 255, 255, 0.5);
+      line-height: 1.5;
+    }
+    .pub-all {
+      display: inline-block;
+      margin-top: 1.25rem;
+      color: #fbbf24;
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: opacity 0.3s;
+    }
+    .pub-all:hover {
+      opacity: 0.8;
+      text-decoration: underline;
+    }
+    .seo-links {
+      margin-top: 2.5rem;
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      animation: fadeInUp 0.8s ease-out 0.9s both;
+    }
+    .seo-links a {
+      color: rgba(251, 191, 36, 0.8);
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: color 0.3s;
+    }
+    .seo-links a:hover {
+      color: #fbbf24;
+      text-decoration: underline;
+    }
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (max-width: 640px) {
+      .brand-name { font-size: 2rem; }
+      .logo-container img { width: 60px; height: 60px; }
+      .tagline { font-size: 1rem; }
+      .features { gap: 1rem; }
+      .feature { min-width: 140px; padding: 1rem; }
+      .pub-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="logo-container">
+    <img src="/images/logo.png" alt="DOKIQ — генератор юридических документов" />
+    <span class="brand-name">DOKIQ</span>
+  </div>
+
+  <h1 style="font-size:0;position:absolute;opacity:0;">DokIQ — онлайн генератор юридических документов, исков и договоров</h1>
+  
+  <p class="tagline">
+    Юридические документы за 10 минут.<br>
+    Иски, договоры, претензии — без очередей и консультаций.
+  </p>
+
+  <a href="/app/" class="cta-button">
+    <span>⚡</span>
+    Начать работу
+  </a>
+  
+  <a href="https://t.me/Dok_IQ" target="_blank" rel="noopener noreferrer" class="telegram-button">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+    Написать в Telegram
+  </a>
+
+  <div class="features">
+    <div class="feature">
+      <div class="feature-icon">⚖️</div>
+      <div class="feature-title">Иски и ответы</div>
+      <div class="feature-desc">Автоматическая генерация</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">📝</div>
+      <div class="feature-title">Договоры</div>
+      <div class="feature-desc">По актуальному закону</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">📄</div>
+      <div class="feature-title">Претензии</div>
+      <div class="feature-desc">Готовые к отправке</div>
+    </div>
+  </div>
+
+  <section class="publications">
+    <h2>📚 Последние публикации</h2>
+    <div class="pub-grid">
+      <a href="/blog/isk-o-vzyskanii-dolga/" class="pub-card">
+        <span class="pub-tag">Иски</span>
+        <h3>Как составить иск о взыскании долга</h3>
+        <p>Пошаговая инструкция по подготовке искового заявления о взыскании задолженности.</p>
+      </a>
+      <a href="/blog/dogovor-kupli-prodazhi-kvartiry/" class="pub-card">
+        <span class="pub-tag">Договоры</span>
+        <h3>Договор купли-продажи квартиры</h3>
+        <p>Что проверить перед подписанием — ключевые пункты и защита от рисков.</p>
+      </a>
+      <a href="/blog/pretenziya-zastroyshchiku/" class="pub-card">
+        <span class="pub-tag">Претензии</span>
+        <h3>Претензия застройщику: образец</h3>
+        <p>Как правильно составить претензию по ФЗ-214.</p>
+      </a>
+    </div>
+    <a href="/blog/" class="pub-all">Все публикации →</a>
+  </section>
+
+  <nav class="seo-links">
+    <a href="/isk/">Составить иск</a>
+    <a href="/dogovor/">Договор онлайн</a>
+    <a href="/pretenziya/">Претензия образец</a>
+    <a href="/blog/">Публикации</a>
+  </nav>
+
+  <!-- Yandex.Metrika counter -->
+  <script type="text/javascript">
+   (function(m,e,t,r,i,k,a){
+   m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+   m[i].l=1*new Date();
+   for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
+   k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
+   })(window, document, 'script', 'https://mc.yandex.ru/metrika/tag.js?id=109713317', 'ym');
+   ym(109713317, 'init', {ssr:true, webvisor:true, clickmap:true, ecommerce:"dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
+  </script>
+  <noscript><div><img src="https://mc.yandex.ru/watch/109713317" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+</body>
+</html>

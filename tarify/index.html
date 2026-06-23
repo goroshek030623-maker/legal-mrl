@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Тарифы DokIQ — юридические документы онлайн</title>
+  <meta name="description" content="Выберите подходящий тариф DokIQ. Бесплатно, Pro и Business. Создавайте юридические документы за минуты." />
+  <link rel="canonical" href="https://dokiq.ru/tarify/" />
+  <link rel="icon" type="image/png" href="/images/logo.png" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #0a1628; color: #e2e8f0; line-height: 1.6; min-height: 100vh; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+    header { text-align: center; padding: 2rem 0 3rem; }
+    .logo { display: inline-flex; align-items: center; gap: 0.75rem; text-decoration: none; margin-bottom: 1.5rem; }
+    .logo img { width: 50px; height: 50px; }
+    .logo span { font-size: 1.75rem; font-weight: 800; color: #fbbf24; }
+    h1 { font-size: 2.5rem; color: #fff; margin-bottom: 0.5rem; }
+    .subtitle { color: rgba(226,232,240,0.6); font-size: 1.1rem; }
+    .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 2rem; }
+    .pricing-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(251,191,36,0.15); border-radius: 1.25rem; padding: 2rem; position: relative; transition: all 0.3s; }
+    .pricing-card:hover { transform: translateY(-5px); border-color: rgba(251,191,36,0.4); background: rgba(255,255,255,0.05); }
+    .pricing-card.popular { border-color: rgba(251,191,36,0.5); background: linear-gradient(135deg, rgba(251,191,36,0.08), rgba(217,119,6,0.05)); }
+    .popular-badge { position: absolute; top: -12px; right: 20px; background: linear-gradient(135deg, #fbbf24, #d97706); color: #0a1628; padding: 0.4rem 1rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; }
+    .plan-name { font-size: 1.25rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem; }
+    .plan-price { font-size: 2.5rem; font-weight: 800; color: #fbbf24; margin: 1rem 0; }
+    .plan-price span { font-size: 1rem; color: rgba(226,232,240,0.5); font-weight: 400; }
+    .plan-desc { color: rgba(226,232,240,0.6); font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .features { list-style: none; margin: 0; padding: 0; }
+    .features li { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.95rem; }
+    .features li::before { content: "✓"; color: #22c55e; font-weight: 700; }
+    .features li.no::before { content: "✗"; color: #ef4444; }
+    .btn { display: block; width: 100%; text-align: center; padding: 1rem; border-radius: 9999px; font-size: 1rem; font-weight: 600; text-decoration: none; margin-top: 1.5rem; transition: all 0.3s; border: none; cursor: pointer; }
+    .btn-primary { background: linear-gradient(135deg, #fbbf24, #d97706); color: #0a1628; }
+    .btn-primary:hover { transform: scale(1.02); }
+    .btn-outline { background: transparent; color: #fbbf24; border: 2px solid rgba(251,191,36,0.3); }
+    .btn-outline:hover { background: rgba(251,191,36,0.1); }
+    .trust { text-align: center; margin-top: 3rem; padding: 2rem; background: rgba(255,255,255,0.02); border-radius: 1rem; }
+    .trust h3 { color: #fbbf24; margin-bottom: 1rem; }
+    .trust-stats { display: flex; justify-content: center; gap: 3rem; flex-wrap: wrap; margin-top: 1rem; }
+    .stat { text-align: center; }
+    .stat-number { font-size: 2rem; font-weight: 800; color: #fff; }
+    .stat-label { color: rgba(226,232,240,0.5); font-size: 0.85rem; }
+    footer { text-align: center; padding: 2rem; margin-top: 2rem; color: rgba(226,232,240,0.4); font-size: 0.85rem; }
+    footer a { color: #fbbf24; text-decoration: none; }
+    @media (max-width: 768px) { h1 { font-size: 1.75rem; } .pricing-grid { grid-template-columns: 1fr; } .trust-stats { gap: 1.5rem; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a href="/" class="logo">
+        <img src="/images/logo.png" alt="DokIQ" />
+        <span>DokIQ</span>
+      </a>
+      <h1>Выберите свой тариф</h1>
+      <p class="subtitle">Готовые юридические документы за минуты. Без скрытых платежей.</p>
+    </header>
+
+    <div class="pricing-grid">
+      <div class="pricing-card">
+        <div class="plan-name">Free</div>
+        <div class="plan-price">0 ₽ <span>/ навсегда</span></div>
+        <p class="plan-desc">Для знакомства с сервисом</p>
+        <ul class="features">
+          <li>1 документ в месяц</li>
+          <li>Базовые шаблоны</li>
+          <li>Стандартная генерация</li>
+          <li class="no">Приоритетная генерация</li>
+          <li class="no">Все шаблоны</li>
+          <li class="no">API доступ</li>
+        </ul>
+        <a href="/app/" class="btn btn-outline">Начать бесплатно</a>
+      </div>
+
+      <div class="pricing-card popular">
+        <div class="popular-badge">ПОПУЛЯРНЫЙ</div>
+        <div class="plan-name">Pro</div>
+        <div class="plan-price">490 ₽ <span>/ месяц</span></div>
+        <p class="plan-desc">Для личного использования</p>
+        <ul class="features">
+          <li>Безлимит документов</li>
+          <li>Все шаблоны</li>
+          <li>Приоритетная генерация</li>
+          <li>Сохранение истории</li>
+          <li>Скачивание PDF + Word</li>
+          <li class="no">API доступ</li>
+        </ul>
+        <a href="/app/" class="btn btn-primary">Выбрать Pro</a>
+      </div>
+
+      <div class="pricing-card">
+        <div class="plan-name">Business</div>
+        <div class="plan-price">1 990 ₽ <span>/ месяц</span></div>
+        <p class="plan-desc">Для юристов и компаний</p>
+        <ul class="features">
+          <li>Всё из Pro</li>
+          <li>API для интеграций</li>
+          <li>Брендированные документы</li>
+          <li>Многопользовательский доступ</li>
+          <li>Персональный менеджер</li>
+          <li>SLA гарантии</li>
+        </ul>
+        <a href="https://t.me/Dok_IQ" target="_blank" class="btn btn-outline">Связаться</a>
+      </div>
+    </div>
+
+    <div class="trust">
+      <h3>Нам доверяют</h3>
+      <div class="trust-stats">
+        <div class="stat">
+          <div class="stat-number">12 347</div>
+          <div class="stat-label">Документов создано</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number">4.9★</div>
+          <div class="stat-label">Средняя оценка</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number">5 200+</div>
+          <div class="stat-label">Активных пользователей</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <p>© 2026 DokIQ — <a href="/">Главная</a> | <a href="/blog/">Блог</a> | <a href="/tarify/">Тарифы</a> | <a href="https://t.me/Dok_IQ" target="_blank">Telegram</a></p>
+  </footer>
+
+  <script type="text/javascript">
+   (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})(window,document,'script','https://mc.yandex.ru/metrika/tag.js?id=109713317','ym');ym(109713317,'init',{ssr:true,webvisor:true,clickmap:true,accurateTrackBounce:true,trackLinks:true});
+  </script>
+</body>
+</html>

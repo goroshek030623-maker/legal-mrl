@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Отмена судебного приказа — DokIQ Shorts</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; overflow: hidden; }
+.slide-container { width: 100vw; height: 100vh; display: flex; flex-direction: column; position: relative; }
+.slide { display: none; width: 100%; height: 100%; flex-direction: column; justify-content: center; align-items: center; padding: 2rem; text-align: center; position: relative; }
+.slide.active { display: flex; }
+.nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; z-index: 100; }
+.nav-btn { background: rgba(255,255,255,0.2); border: none; color: white; padding: 12px 24px; border-radius: 30px; font-size: 1.2rem; cursor: pointer; backdrop-filter: blur(10px); }
+.nav-btn:active { background: rgba(255,255,255,0.4); }
+.timer-bar { position: fixed; top: 0; left: 0; height: 4px; background: #f59e0b; z-index: 100; transition: width 0.1s linear; }
+.slide-icon { font-size: 4rem; margin-bottom: 1rem; }
+.slide-text { font-size: 2.2rem; font-weight: 900; color: white; line-height: 1.2; margin-bottom: 1rem; }
+.slide-sub { font-size: 1.3rem; color: #94a3b8; margin-bottom: 1.5rem; }
+.slide-num { position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,0.1); padding: 8px 16px; border-radius: 20px; font-size: 0.9rem; color: #94a3b8; }
+.badge { display: inline-block; background: linear-gradient(135deg, #f59e0b, #ef4444); color: #0f172a; padding: 8px 20px; border-radius: 25px; font-size: 1rem; font-weight: 700; margin-bottom: 1rem; }
+.urgent { color: #ef4444; font-weight: 900; }
+.success { color: #10b981; font-weight: 900; }
+.cta-btn { display: inline-block; background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; padding: 16px 32px; border-radius: 16px; font-size: 1.3rem; font-weight: 900; margin-top: 1rem; }
+.arrow-hint { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); color: #64748b; font-size: 0.9rem; animation: bounce 2s infinite; }
+@keyframes bounce { 0%, 100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(-10px); } }
+</style>
+</head>
+<body>
+<div class="timer-bar" id="timer"></div>
+<div class="slide-container">
+  <div class="slide active" id="slide1">
+    <div class="slide-num">1/5</div>
+    <div class="badge">⚠️ СРОЧНО</div>
+    <div class="slide-icon">📄</div>
+    <div class="slide-text">Пришёл судебный<br>приказ?</div>
+    <div class="slide-sub">Не паникуй!</div>
+  </div>
+  <div class="slide" id="slide2">
+    <div class="slide-num">2/5</div>
+    <div class="badge">⏰ ДЕДЛАЙН</div>
+    <div class="slide-icon">⏱️</div>
+    <div class="slide-text">10 дней!</div>
+    <div class="slide-sub">Иначе <span class="urgent">спишут деньги</span><br>автоматически</div>
+  </div>
+  <div class="slide" id="slide3">
+    <div class="slide-num">3/5</div>
+    <div class="badge">✅ РЕШЕНИЕ</div>
+    <div class="slide-icon">⚖️</div>
+    <div class="slide-text">DokIQ — заявление<br>за 5 минут</div>
+    <div class="slide-sub">Без юристов и очередей</div>
+  </div>
+  <div class="slide" id="slide4">
+    <div class="slide-num">4/5</div>
+    <div class="badge">🚀 КАК ЭТО РАБОТАЕТ</div>
+    <div class="slide-icon">📋</div>
+    <div class="slide-text">Ввёл данные</div>
+    <div class="slide-sub">→ Получил <span class="success">готовый документ</span></div>
+  </div>
+  <div class="slide" id="slide5">
+    <div class="slide-num">5/5</div>
+    <div class="badge">👇 ССЫЛКА</div>
+    <div class="slide-icon">🔗</div>
+    <div class="slide-text">dokiq.ru</div>
+    <div class="cta-btn">Отменить приказ</div>
+    <div class="slide-sub" style="margin-top:1rem;">Telegram: @DokIQ_bot</div>
+  </div>
+</div>
+<div class="arrow-hint">👆 Свайпай или жми стрелки</div>
+<div class="nav">
+  <button class="nav-btn" onclick="prevSlide()">◀</button>
+  <button class="nav-btn" onclick="nextSlide()">▶</button>
+</div>
+<script>
+let current = 1;
+const total = 5;
+let timerInterval;
+function showSlide(n) {
+  document.querySelectorAll('.slide').forEach(s => s.classList.remove('active'));
+  document.getElementById('slide'+n).classList.add('active');
+  current = n;
+  resetTimer();
+}
+function nextSlide() { showSlide(current >= total ? 1 : current + 1); }
+function prevSlide() { showSlide(current <= 1 ? total : current - 1); }
+document.addEventListener('keydown', e => { if(e.key==='ArrowRight')nextSlide(); if(e.key==='ArrowLeft')prevSlide(); });
+document.addEventListener('touchstart', e => { window.startX = e.touches[0].clientX; });
+document.addEventListener('touchend', e => { const dx = e.changedTouches[0].clientX - window.startX; if(Math.abs(dx)>50) dx<0 ? nextSlide() : prevSlide(); });
+function resetTimer() { const bar = document.getElementById('timer'); bar.style.transition = 'none'; bar.style.width = '0%'; setTimeout(() => { bar.style.transition = 'width 4s linear'; bar.style.width = '100%'; }, 50); clearInterval(timerInterval); timerInterval = setInterval(nextSlide, 4000); }
+resetTimer();
+</script>
+</body>
+</html>
